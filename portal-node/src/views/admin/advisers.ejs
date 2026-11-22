@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">Advisers</h4>
+    <p class="page-subtitle">Designate the advisory class per section. Its teacher is the section adviser - the only one who can print the students' SF9.</p>
+    <% if (!years.length) { %>
+        <div class="alert alert-info">No academic years yet.</div>
+    <% } else { %>
+    <form method="GET" class="mb-2">
+        <input type="hidden" name="page" value="advisers">
+        <select name="year" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+            <% for (const y of years) { %>
+                <option value="<%= y.id %>" <%= Number(y.id) === Number(year_id) ? 'selected' : '' %>>SY <%= y.label %></option>
+            <% } %>
+        </select>
+    </form>
+    <% if (!sections.length) { %>
+        <div class="alert alert-info">No classes for SY <%= year_label %> yet.</div>
+    <% } else { %>
+    <div class="row g-3">
+        <% for (const sec of sections) { %>
+            <div class="col-md-6 col-xl-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong><%= sec.section %></strong>
+                        <% if (sec.has_adviser) { %>
+                            <span class="badge bg-success">Adviser set</span>
+                        <% } else { %>
+                            <span class="badge bg-secondary">No adviser</span>
+                        <% } %>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        <% for (const r of sec.classes) { %>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-semibold small"><%= r.subject %></div>
+                                    <small class="text-muted"><%= r.teacher !== '' ? r.teacher : 'Teacher TBA' %> &middot; <%= Number(r.students) %> students</small>
+                                </div>
+                                <form method="POST">
+                                    <%- csrf_field %>
+                                    <input type="hidden" name="action" value="toggle_advisory">
+                                    <input type="hidden" name="class_id" value="<%= r.id %>">
+                                    <button type="submit" class="btn btn-sm <%= Number(r.is_advisory) ? 'btn-outline-danger' : 'btn-brand' %>">
+                                        <%= Number(r.is_advisory) ? 'Remove adviser' : 'Set as advisory' %>
+                                    </button>
+                                </form>
+                            </li>
+                        <% } %>
+                    </ul>
+                </div>
+            </div>
+        <% } %>
+    </div>
+    <% } %>
+    <% } %>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

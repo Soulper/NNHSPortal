@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Grading Scale</h4>
+            <p class="page-subtitle">The descriptor bands used to label every Term Grade.</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <h6 class="fw-bold">How grading works</h6>
+            <p class="small text-muted mb-0">
+                Teachers enter one <strong>Term Grade</strong> per student per term &mdash; between
+                <%= tg_min %> and <%= tg_max %>. There are no categories,
+                activities or weights. The number a teacher types <em>is</em> the Term Grade, and the
+                bands below turn it into a descriptor word. The passing mark is
+                <strong><%= passing %></strong>.
+            </p>
+        </div>
+    </div>
+
+    <% if (chk > 0) { %>
+        <div class="alert alert-danger">
+            A band ends below where it starts. Fix the ranges below &mdash; until then every
+            grade in that band will be labelled &ldquo;Invalid&rdquo;.
+        </div>
+    <% } %>
+    <% if (overlaps > 0) { %>
+        <div class="alert alert-warning">
+            <%= overlaps %> band(s) overlap. descriptor_for() returns the first match, so an
+            overlapping range silently shadows the one below it.
+        </div>
+    <% } %>
+
+    <div class="card shadow-sm">
+        <div class="card-header fw-semibold card-header-soft">DO 015, s. 2026 reporting scale</div>
+        <div class="card-body">
+            <form method="POST">
+                <input type="hidden" name="action" value="descriptor_save">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-3">
+                        <thead>
+                            <tr>
+                                <th style="width:110px;">From</th>
+                                <th style="width:110px;">To</th>
+                                <th>Descriptor (EN)</th>
+                                <th>Descriptor (FIL)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <% for (const b of rows) { %>
+                            <tr>
+                                <td><input type="number" step="0.01" class="form-control form-control-sm"
+                                           name="desc[<%= b.id %>][min]" value="<%= h.trim_num(b.min_grade) %>"></td>
+                                <td><input type="number" step="0.01" class="form-control form-control-sm"
+                                           name="desc[<%= b.id %>][max]" value="<%= h.trim_num(b.max_grade) %>"></td>
+                                <td><input type="text" class="form-control form-control-sm"
+                                           name="desc[<%= b.id %>][label_en]" value="<%= b.label_en %>"></td>
+                                <td><input type="text" class="form-control form-control-sm"
+                                           name="desc[<%= b.id %>][label_fil]" value="<%= b.label_fil ?? '' %>"></td>
+                            </tr>
+                        <% } %>
+                        </tbody>
+                    </table>
+                </div>
+                <button type="submit" class="btn btn-sm btn-brand">Save Scale</button>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

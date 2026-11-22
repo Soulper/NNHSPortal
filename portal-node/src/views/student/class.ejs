@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: page, unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+    <% } else { %>
+
+    <div class="page-header">
+        <div>
+            <a class="small d-inline-block mb-1" href="dashboard.php?page=classes">&larr; My Classes</a>
+            <h4 class="page-title"><%= c.subject %></h4>
+            <p class="page-subtitle"><%= c.section %> &middot; SY <%= c.school_year %></p>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item"><a class="nav-link <%= tab === 'stream' ? 'active' : '' %>" href="dashboard.php?page=class&id=<%= class_id %>&tab=stream">Stream</a></li>
+        <li class="nav-item"><a class="nav-link <%= tab === 'assignments' ? 'active' : '' %>" href="dashboard.php?page=class&id=<%= class_id %>&tab=assignments">Assignments</a></li>
+    </ul>
+
+    <% if (tab === 'stream') { %>
+        <h5 class="fw-bold mb-2">Announcements</h5>
+        <% if (anns.length) { %><div class="list-group mt-2"><% anns.forEach((a) => { %>
+        <div class="list-group-item"><div class="fw-semibold"><%= a.title %></div>
+        <small><%- a.content_html %></small>
+        <% if (a.attachment) { %><br><a href="download.php?f=<%= a.attachment_href %>" target="_blank" class="small">Attachment</a><% } %>
+        <br><small class="text-muted"><%= a.posted_at %></small></div>
+        <% }) %></div><% } else { %>
+        <div class="alert alert-info mt-2">No announcements yet.</div>
+        <% } %>
+
+        <!-- Grade summary: published terms only -->
+        <div class="card shadow-sm mt-4"><div class="card-header fw-semibold card-header-soft">My Grades Summary</div><div class="card-body">
+        <% if (grades_summary.length) { %>
+            <% grades_summary.forEach((tt) => { %>
+            <div class="mb-3"><div class="d-flex justify-content-between align-items-center"><strong><%= tt.label %></strong>
+            <% if (tt.grade !== null) { %>
+                <span class="d-flex align-items-center gap-2"><span class="rc-grade <%= h.rc_grade_class(tt.grade, true) %>"><%- h.rc_grade(tt.grade, true) %></span><span class="badge bg-primary"><%- h.rc_label(tt.descriptor, true) %></span><%- h.rc_result(tt.passed, true) %></span>
+            <% } else { %>
+                <span class="text-muted small">No grade yet</span>
+            <% } %>
+            </div></div>
+            <% }) %>
+        <% } else { %>
+            <p class="text-muted small mb-0">No grades published yet. Your teacher will publish term grades here.</p>
+        <% } %>
+        </div></div>
+
+        <!-- Attendance summary -->
+        <div class="card shadow-sm mt-3"><div class="card-header fw-semibold card-header-soft">My Attendance</div><div class="card-body">
+        <% if (att_summary.length) { %>
+            <% att_summary.forEach((a) => { %>
+            <div class="d-flex justify-content-between"><span class="text-<%= a.color %> fw-semibold"><%= a.status_uc %></span><span><%= a.cnt %> (<%= a.pct %>%)</span></div>
+            <% }) %>
+        <% } else { %>
+            <p class="text-muted small mb-0">No attendance records yet.</p>
+        <% } %>
+        </div></div>
+
+    <% } else if (tab === 'assignments') { %>
+        <h5 class="fw-bold">Assignments</h5>
+        <% if (!assigns.length) { %>
+        <div class="alert alert-info mt-2">No assignments yet.</div>
+        <% } else { %>
+        <div class="list-group mt-2">
+        <% assigns.forEach((a) => { %>
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fw-semibold"><%= a.title %></div>
+                        <small class="text-muted">Due: <%= a.due_date %></small>
+                        <% if (a.attachment) { %> | <a href="download.php?f=<%= a.attachment_href %>" target="_blank" class="small">Attachment</a><% } %>
+                        <% if (a.description_html) { %><br><small><%- a.description_html %></small><% } %>
+                        <br><small class="text-muted">
+                            <% if (a.requires_file) { %>File required &middot; Accepted: <%= a.exts_csv %> &middot; Max <%= a.max_size_mb %> MB<% } else { %>File optional<% } %>
+                            &middot; <%= a.late_label %>
+                        </small>
+                        <br><small class="text-muted"><i class="bi bi-shield-lock"></i> Your submission is visible only to you and your teacher.</small>
+                        <% if (a.existing) { %><br><small class="text-muted">Submitted: <%= a.submitted_at %></small><% } %>
+                        <% if (a.existing && a.feedback) { %><br><small class="text-muted">Feedback: <%= a.feedback %></small><% } %>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-<%= a.status_color %>"><%= a.status %></span>
+                        <% if (a.can_submit) { %>
+                            <button class="btn btn-sm btn-outline-primary mt-1" data-bs-toggle="modal" data-bs-target="#subModal<%= a.id %>"><%= a.button %></button>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+            <div class="modal fade" id="subModal<%= a.id %>">
+                <div class="modal-dialog">
+                    <form method="POST" enctype="multipart/form-data" class="modal-content">
+                        <input type="hidden" name="action" value="submit_assignment">
+                        <input type="hidden" name="class_id" value="<%= class_id %>">
+                        <input type="hidden" name="assignment_id" value="<%= a.id %>">
+                        <div class="modal-header"><h5 class="modal-title">Submit: <%= a.title %></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                        <div class="modal-body">
+                            <% if (a.requires_file) { %>
+                                <p class="small text-muted mb-2">Accepted types: <strong><%= a.exts_csv %></strong> &middot; Max size: <strong><%= a.max_size_mb %> MB</strong> &middot; Due: <strong><%= a.due_date %></strong></p>
+                                <input type="file" name="file" class="form-control" required accept="<%= a.accept_attr %>">
+                            <% } else { %>
+                                <input type="file" name="file" class="form-control">
+                            <% } %>
+                            <small class="text-muted d-block mt-2"><i class="bi bi-shield-lock"></i> Your file is visible only to you and your teacher.</small>
+                        </div>
+                        <div class="modal-footer"><button type="submit" class="btn btn-sm btn-brand">Submit</button></div>
+                    </form>
+                </div>
+            </div>
+        <% }) %>
+        </div>
+        <% } %>
+    <% } %>
+
+    <% } %>
+
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

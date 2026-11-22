@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: page, unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="page-title">My Classes</h4>
+        <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#joinModal">+ Join Class</button>
+    </div>
+
+    <% if (list.length) { %>
+    <div class="row g-3">
+        <% list.forEach((c) => { %>
+        <div class="col-md-4 col-sm-6"><div class="card class-card shadow-sm accent-<%= c.accent %>"><div class="card-body">
+            <h5 class="card-title fw-bold mb-1"><%= c.subject %></h5>
+            <small class="text-muted d-block"><%= c.section %> &middot; SY <%= c.school_year %></small>
+            <small class="stu-teacher d-block mb-2"><%= c.teacher !== '' ? c.teacher : 'Teacher TBA' %></small>
+            <div class="d-flex justify-content-between align-items-center">
+                <% if (c.latest !== null) { %>
+                <span class="stu-grade-line"><span class="rc-grade <%= h.rc_grade_class(c.latest, true) %>"><%- h.rc_grade(c.latest, true) %></span><small class="rc-desc"><%- h.rc_label(c.latest_desc, true) %></small></span>
+                <% } else { %>
+                <small class="text-muted">No grades yet</small>
+                <% } %>
+                <a href="dashboard.php?page=class&id=<%= c.id %>" class="btn btn-sm btn-brand">Open</a>
+            </div>
+        </div></div></div>
+        <% }) %>
+    </div>
+    <% } else { %>
+    <div class="card"><div class="empty-state"><div class="empty-icon"><%- h.icon('users', 26) %></div><h6>No classes yet</h6><p>Enter the join code your teacher gave you to enroll.</p><button class="btn btn-accent" data-bs-toggle="modal" data-bs-target="#joinModal">+ Join Class</button></div></div>
+    <% } %>
+
+    <div class="modal fade" id="joinModal">
+        <div class="modal-dialog">
+            <form method="POST" class="modal-content">
+                <input type="hidden" name="action" value="join_class">
+                <div class="modal-header"><h5 class="modal-title">Join a Class</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <p class="small text-muted">Enter the class join code provided by your teacher.</p>
+                    <input type="text" name="join_code" class="form-control" placeholder="Enter code" required style="text-transform:uppercase;">
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-sm btn-brand">Join</button></div>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

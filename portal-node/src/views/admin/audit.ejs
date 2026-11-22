@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">Audit Log</h4>
+    <% if (!rows.length) { %>
+        <div class="alert alert-info">No audit records yet.</div>
+    <% } else { %>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped">
+            <thead><tr><th>#</th><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>Old → New</th><th>IP</th></tr></thead>
+            <tbody>
+            <% for (const r of rows) { %>
+                <tr>
+                    <td><%= r.id %></td>
+                    <td><small><%= r.created_at %></small></td>
+                    <td><small><%= r.email ?? 'system' %></small></td>
+                    <td><code><%= r.action %></code></td>
+                    <td><small><%= r.target_type ?? '' %> <%= r.target_id ? '#' + r.target_id : '' %></small></td>
+                    <td><small><%= r.old_value ?? '' %><%= (r.old_value !== null && r.new_value !== null) ? ' → ' : '' %><%= r.new_value ?? '' %></small></td>
+                    <td><small><%= r.ip ?? '' %></small></td>
+                </tr>
+            <% } %>
+            </tbody>
+        </table>
+    </div>
+    <% } %>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

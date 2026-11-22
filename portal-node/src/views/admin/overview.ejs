@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Admin Overview</h4>
+            <p class="page-subtitle">School-wide snapshot</p>
+        </div>
+    </div>
+    <div class="row g-3">
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('book', 20) %></div><p class="stat-value"><%= teachers %></p><span class="stat-label">Active Teachers</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('users', 20) %></div><p class="stat-value"><%= students %></p><span class="stat-label">Active Students</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('school', 20) %></div><p class="stat-value"><%= classes %></p><span class="stat-label">Active Classes</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('award', 20) %></div><p class="stat-value"><%= graded %></p><span class="stat-label">Term Grades Recorded</span></div></div>
+    </div>
+    <div class="row g-3 mt-1">
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-semibold">Upcoming Events (next 30 days)</div><div class="card-body p-0">
+            <% if (!evs.length) { %>
+                <p class="text-muted small p-3 mb-0">No upcoming events.</p>
+            <% } else { %>
+                <ul class="list-group list-group-flush">
+                <% for (const e of evs) { %>
+                    <li class="list-group-item d-flex justify-content-between"><span><%= e.title %></span><small class="text-muted"><%= e.event_date %></small></li>
+                <% } %>
+                </ul>
+            <% } %>
+        </div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-semibold">Latest Audit Activity</div><div class="card-body p-0">
+            <% if (!logs.length) { %>
+                <p class="text-muted small p-3 mb-0">No activity yet.</p>
+            <% } else { %>
+                <ul class="list-group list-group-flush">
+                <% for (const r of logs) { %>
+                    <li class="list-group-item d-flex justify-content-between"><span><small><%= r.action %></small> <span class="text-muted"><%= r.email ?? 'system' %></span></span><small class="text-muted"><%= r.created_at %></small></li>
+                <% } %>
+                </ul>
+            <% } %>
+        </div></div></div>
+    </div>
+    <% if (unverified > 0) { %>
+        <div class="alert alert-warning mt-3"><%= unverified %> pending account(s) await approval.</div>
+    <% } %>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

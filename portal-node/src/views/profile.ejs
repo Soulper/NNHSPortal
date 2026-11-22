@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('partials/app_head', { title: 'Profile - School Portal' }) %>
+</head>
+<body>
+<%- include('partials/navbar', { page: 'profile', unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+                    <img src="download.php?f=<%= encodeURIComponent(photo) %>" class="profile-photo" onerror="this.src='https://ui-avatars.com/api/?name=<%= encodeURIComponent(full_name) %>&background=0D1B3E&color=fff';">
+                    <h5 class="fw-bold"><%= full_name %></h5>
+                    <p class="text-muted small"><%= email %> | <%= role.charAt(0).toUpperCase() + role.slice(1) %></p>
+                </div>
+            </div>
+            <div class="card shadow-sm mt-3">
+                <div class="card-header fw-semibold card-header-soft">Edit Profile</div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="update_profile">
+                        <% if (role === 'teacher') { %>
+                            <div class="mb-2"><label class="small fw-semibold">Office Hours</label><input type="text" name="office_hours" class="form-control" value="<%= data.office_hours || '' %>"></div>
+                            <div class="mb-2"><label class="small fw-semibold">Contact Email</label><input type="email" name="contact_email" class="form-control" value="<%= data.contact_email || '' %>"></div>
+                        <% } else { %>
+                            <div class="mb-2"><label class="small fw-semibold">Phone</label><input type="text" name="phone" class="form-control" value="<%= data.phone || '' %>"></div>
+                        <% } %>
+                        <div class="mb-3"><label class="small fw-semibold">Profile Photo</label><input type="file" name="photo" class="form-control form-control-sm"></div>
+                        <button type="submit" class="btn btn-sm btn-brand">Update Profile</button>
+                    </form>
+                </div>
+            </div>
+            <div class="card shadow-sm mt-3">
+                <div class="card-header fw-semibold card-header-soft">Change Password</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="change_password">
+                        <div class="mb-2"><label class="small fw-semibold">Current Password</label><input type="password" name="current_password" class="form-control" required></div>
+                        <div class="mb-2"><label class="small fw-semibold">New Password</label><input type="password" name="new_password" class="form-control" required></div>
+                        <div class="mb-2"><label class="small fw-semibold">Confirm New Password</label><input type="password" name="confirm_password" class="form-control" required></div>
+                        <button type="submit" class="btn btn-sm btn-brand">Change Password</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<%- include('partials/footer') %>
+</body>
+</html>

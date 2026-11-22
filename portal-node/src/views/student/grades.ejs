@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: page, unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (info) { %>
+    <div class="alert alert-info"><%= info %></div>
+    <% } else { %>
+
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Report Card</h4>
+            <p class="page-subtitle">Released Term Grades and your general average.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()">Print</button>
+        </div>
+    </div>
+
+    <div class="stu-learner d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+        <div>
+            <strong><%= me.full_name %></strong>
+            <small class="text-muted d-block">
+                <%= me.student_number %><%= me.section ? ' &middot; ' + me.section : '' %>
+            </small>
+        </div>
+        <small class="text-muted">SY <%= year_label %> &middot; DO 015 reporting scale</small>
+    </div>
+
+    <% if (years.length > 1) { %>
+    <div class="rc-year-tabs">
+        <% years.forEach((y) => { %>
+        <a class="rc-year-tab<%= y.active ? ' is-active' : '' %>" href="dashboard.php?page=grades&amp;year=<%= y.yid %>"><%= y.label %></a>
+        <% }) %>
+    </div>
+    <% } %>
+
+    <div class="card rc-card">
+        <div class="table-responsive">
+            <table class="table rc-table mb-0">
+                <thead>
+                    <tr>
+                        <th class="rc-th-subject">Subject</th>
+                        <% terms.forEach((t) => { %>
+                        <th class="rc-th-term"><%= t.label %></th>
+                        <% }) %>
+                        <th class="rc-th-final">Final<br><small>General Avg</small></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <% subjects.forEach((s) => { %>
+                    <tr class="rc-subject-row<%= s.any ? '' : ' is-empty' %>">
+                        <th class="rc-td-subject" scope="row">
+                            <%= s.subject %>
+                            <small><%= s.section %><%= s.shown_cluster !== '' ? ' &middot; ' + s.shown_cluster : '' %></small>
+                        </th>
+                        <% s.cells.forEach((f) => { %>
+                        <td class="rc-td-term">
+                            <% if (!f.shown) { %>
+                                <span class="rc-hidden" title="Not released yet">&mdash;</span>
+                            <% } else { %>
+                                <span class="rc-grade <%= h.rc_grade_class(f.grade, true) %>"><%- h.rc_grade(f.grade, true) %></span>
+                                <small class="rc-desc"><%- h.rc_label(f.desc, true) %></small>
+                            <% } %>
+                        </td>
+                        <% }) %>
+                        <td class="rc-td-final">
+                            <span class="rc-grade rc-grade-final <%= h.rc_grade_class(s.sub_final, s.sub_final !== null) %>"><%- h.rc_grade(s.sub_final, s.sub_final !== null) %></span>
+                            <%- h.rc_result(s.passed, s.sub_final !== null) %>
+                        </td>
+                    </tr>
+                <% }) %>
+
+                <tr class="rc-general-row">
+                    <th class="rc-td-subject" scope="row">General Average</th>
+                    <td class="rc-td-general" colspan="<%= terms.length %>">
+                        <% if (!general) { %>
+                            <span class="text-muted">No released grades yet.</span>
+                        <% } else { %>
+                            <span class="rc-grade <%= h.rc_grade_class(general.value, true) %>"><%- h.rc_grade(general.value, true) %></span>
+                            <small class="rc-desc"><%- h.rc_label(general.desc, true) %></small>
+                            <%- h.rc_result(general.passed, true) %>
+                        <% } %>
+                    </td>
+                    <td class="rc-td-final">
+                        <% if (!general) { %><span class="rc-grade rc-g-none">&mdash;</span><% } else { %>
+                            <span class="rc-grade rc-grade-final <%= h.rc_grade_class(general.value, true) %>"><%- h.rc_grade(general.value, true) %></span>
+                        <% } %>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="rc-legend">
+        <span class="rc-legend-title">DO 015 scale</span>
+        <% legend.forEach((b) => { %>
+        <span class="rc-legend-item"><i class="rc-swatch <%= b.cls %>"></i><%= b.label %></span>
+        <% }) %>
+        <span class="rc-legend-item"><i class="rc-swatch rc-g-none"></i>Not graded</span>
+        <span class="rc-legend-note">Passing mark: <%= passing_mark %></span>
+    </div>
+
+    <% } %>
+
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

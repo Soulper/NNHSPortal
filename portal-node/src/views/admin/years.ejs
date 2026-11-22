@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">Academic Years &amp; Terms</h4>
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="card shadow-sm"><div class="card-header fw-semibold">Add Academic Year</div><div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="action" value="add_year">
+                    <div class="mb-2"><label class="small fw-semibold">Label</label><input type="text" name="label" class="form-control" placeholder="e.g. 2027-2028" required></div>
+                    <div class="row g-2 mb-2">
+                        <div class="col"><label class="small fw-semibold">Start</label><input type="date" name="start_date" class="form-control"></div>
+                        <div class="col"><label class="small fw-semibold">End</label><input type="date" name="end_date" class="form-control"></div>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-brand">Add Year</button>
+                </form>
+            </div></div>
+        </div>
+        <div class="col-md-8">
+            <% for (const y of years) { %>
+                <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center card-header-soft">
+                    <span class="fw-bold"><%= y.label %> <%- Number(y.is_active) ? '<span class="badge bg-success">current</span>' : '' %></span>
+                    <% if (!Number(y.is_active)) { %>
+                        <form method="POST" class="d-inline"><input type="hidden" name="action" value="set_active_year"><input type="hidden" name="year_id" value="<%= y.id %>"><button type="submit" class="btn btn-sm btn-outline-success">Set Active</button></form>
+                    <% } %>
+                </div><div class="card-body">
+                    <% if (y.terms.length) { %>
+                        <table class="table table-sm mb-3"><thead><tr><th>Term</th><th>Dates</th><th>Weight</th><th>Status</th><th></th></tr></thead><tbody>
+                        <% for (const t of y.terms) { %>
+                            <tr><td><%= t.label %></td><td><small><%= t.start_date ?? '-' %> to <%= t.end_date ?? '-' %></small></td>
+                            <td><%= t.weight %></td><td><span class="badge bg-<%= t.status == 'open' ? 'success' : 'secondary' %>"><%= t.status %></span></td>
+                            <td><form method="POST" class="d-inline"><input type="hidden" name="action" value="toggle_term_status"><input type="hidden" name="term_id" value="<%= t.id %>"><button type="submit" class="btn btn-sm btn-outline-secondary"><%= t.status == 'open' ? 'Close' : 'Open' %></button></form></td></tr>
+                        <% } %>
+                        </tbody></table>
+                    <% } %>
+                    <form method="POST" class="row g-2 align-items-end">
+                        <input type="hidden" name="action" value="add_term"><input type="hidden" name="year_id" value="<%= y.id %>">
+                        <div class="col-auto"><label class="small fw-semibold">New Term</label><input type="text" name="label" class="form-control form-control-sm" placeholder="e.g. Term 4" required></div>
+                        <div class="col-auto"><label class="small fw-semibold">Start</label><input type="date" name="start_date" class="form-control form-control-sm"></div>
+                        <div class="col-auto"><label class="small fw-semibold">End</label><input type="date" name="end_date" class="form-control form-control-sm"></div>
+                        <div class="col-auto"><label class="small fw-semibold">Weight</label><input type="number" name="weight" step="0.01" value="1" class="form-control form-control-sm" style="width:70px;"></div>
+                        <div class="col-auto"><button type="submit" class="btn btn-sm btn-outline-primary">Add Term</button></div></form>
+                </div></div>
+            <% } %>
+        </div>
+    </div>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

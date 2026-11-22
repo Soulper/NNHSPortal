@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: 'School Portal' }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: 'settings', unread: 0, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (!cls) { %>
+        <div class="alert alert-danger">Class not found.</div>
+    <% } else { %>
+    <div class="page-header">
+        <div>
+            <a class="small d-inline-block mb-1" href="dashboard.php?page=class&id=<%= class_id %>">&larr; Back to Class</a>
+            <h4 class="page-title">Settings: <%= cls.subject %></h4>
+            <p class="page-subtitle"><%= cls.section %></p>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold">Class Information</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="update_class">
+                        <input type="hidden" name="class_id" value="<%= class_id %>">
+                        <div class="mb-2"><label class="small fw-semibold">Subject</label><input type="text" name="subject" class="form-control" value="<%= cls.subject %>"></div>
+                        <div class="mb-2"><label class="small fw-semibold">Section</label><input type="text" name="section" class="form-control" value="<%= cls.section %>"></div>
+                        <div class="mb-2"><label class="small fw-semibold">School Year</label><input type="text" name="school_year" class="form-control" value="<%= cls.school_year %>"></div>
+                        <div class="mb-2"><label class="small fw-semibold">Description</label><textarea name="description" class="form-control" rows="2"><%= cls.description ?? '' %></textarea></div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="is_advisory" id="isAdvisory" value="1" <%= Number(cls.is_advisory || 0) !== 0 ? 'checked' : '' %>>
+                            <label class="form-check-label small" for="isAdvisory">
+                                This is my <strong>advisory class</strong>
+                            </label>
+                            <small class="text-muted d-block">The advisory class's teacher is the section adviser - the only one who can generate the students' SF9 report cards. The admin panel can also reassign this.</small>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-brand">Update</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold">Join Code</div>
+                <div class="card-body">
+                    <p class="mb-1">Current code: <strong><%- cls.join_code ? h.esc(cls.join_code) : '<span class="text-muted">Disabled</span>' %></strong></p>
+                    <div class="d-flex gap-1">
+                        <form method="POST"><input type="hidden" name="action" value="new_code"><input type="hidden" name="class_id" value="<%= class_id %>"><button type="submit" class="btn btn-sm btn-outline-primary">Generate New</button></form>
+                        <% if (cls.join_code) { %>
+                            <form method="POST"><input type="hidden" name="action" value="disable_join"><input type="hidden" name="class_id" value="<%= class_id %>"><button type="submit" class="btn btn-sm btn-outline-warning">Disable</button></form>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-3">
+                <div class="card-header fw-semibold">Grading Scale</div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2">
+                        Grades are entered directly and labelled using the DepEd Order No. 015,
+                        s. 2026 reporting scale.
+                    </p>
+                    <table class="table table-sm mb-0 gb-scale-table">
+                        <tbody>
+                        <% bands.forEach((b) => { %>
+                            <tr>
+                                <td class="gb-scale-range"><%= h.trim_num(b.min_grade) %>&ndash;<%= h.trim_num(b.max_grade) %></td>
+                                <td><%= b.label_en %></td>
+                                <td class="text-muted small"><%= b.label_fil ?? '' %></td>
+                            </tr>
+                        <% }); %>
+                        </tbody>
+                    </table>
+                    <p class="small text-muted mb-0 mt-2">
+                        Passing mark: <strong><%= Math.trunc(Number(passing_mark)) %></strong>
+                    </p>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-3">
+                <div class="card-header fw-semibold">Active Term</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="set_term">
+                        <input type="hidden" name="class_id" value="<%= class_id %>">
+                        <div class="mb-2">
+                            <select name="term_id" class="form-select">
+                                <option value="">None</option>
+                                <% terms.forEach((t) => { %>
+                                    <option value="<%= Number(t.id) %>" <%= Number(cls.current_term_id) === Number(t.id) ? 'selected' : '' %>><%= t.label %></option>
+                                <% }); %>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-brand">Set Active Term</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-3 border-danger">
+                <div class="card-header fw-semibold text-danger">Danger Zone</div>
+                <div class="card-body">
+                    <form method="POST" style="display:inline;"><input type="hidden" name="action" value="archive_class"><input type="hidden" name="class_id" value="<%= class_id %>"><button type="submit" class="btn btn-sm btn-outline-warning" onclick="return confirm('Archive this class?')">Archive</button></form>
+                    <form method="POST" style="display:inline;"><input type="hidden" name="action" value="delete_class"><input type="hidden" name="class_id" value="<%= class_id %>"><button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('DELETE this class permanently? This cannot be undone.')">Delete</button></form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <% } %>
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

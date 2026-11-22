@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: page, unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Hi, <%= first %>!</h4>
+            <p class="page-subtitle">Here's how you're doing<% if (sy !== '') { %> for SY <%= sy %><% } %>.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="dashboard.php?page=grades" class="btn btn-sm btn-accent">View Report Card</a>
+            <a href="dashboard.php?page=attendance" class="btn btn-sm btn-outline-secondary">My Attendance</a>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('school', 20) %></div><p class="stat-value"><%= enrolled_count %></p><span class="stat-label">Enrolled Classes</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('clipboard', 20) %></div><p class="stat-value"><%= upcoming_count %></p><span class="stat-label">Upcoming Tasks</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('calendar', 20) %></div><p class="stat-value <%= att.cls %>"><%= att.value %></p><span class="stat-label">Attendance Rate</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('award', 20) %></div><p class="stat-value <%= overall.cls %>"><%= overall.value %></p><span class="stat-label">Overall Average<%- overall.desc %></span></div></div>
+    </div>
+
+    <% if (need_attention_parts.length) { %>
+    <div class="alert alert-warning d-flex align-items-start gap-2"><%- h.icon('bell', 18) %><div><strong>Needs attention:</strong> <%- need_attention_parts.join(' &middot; ') %></div></div>
+    <% } %>
+
+    <% if (enrolled.length) { %>
+    <h5 class="fw-bold mt-4 mb-3">My Classes</h5><div class="row g-3">
+        <% enrolled.forEach((c) => { %>
+        <div class="col-md-4 col-sm-6"><div class="card class-card shadow-sm accent-<%= c.accent %>"><div class="card-body">
+            <h6 class="card-title mb-1"><%= c.subject %></h6>
+            <small class="text-muted d-block"><%= c.section %></small>
+            <small class="stu-teacher d-block mb-2"><%= c.teacher !== '' ? c.teacher : 'Teacher TBA' %> &middot; <%= c.released %> of <%= c.terms %> terms released</small>
+            <div class="d-flex justify-content-between align-items-center">
+                <% if (c.latest !== null) { %>
+                <span class="stu-grade-line"><span class="rc-grade <%= h.rc_grade_class(c.latest, true) %>"><%- h.rc_grade(c.latest, true) %></span><small class="rc-desc"><%- h.rc_label(c.latest_desc, true) %></small></span>
+                <% } else { %>
+                <small class="text-muted">No grades yet</small>
+                <% } %>
+                <a href="dashboard.php?page=class&id=<%= c.id %>" class="btn btn-sm btn-brand">Open</a>
+            </div>
+        </div></div></div>
+        <% }) %>
+    </div>
+    <% } else { %>
+    <div class="card"><div class="empty-state"><div class="empty-icon"><%- h.icon('school', 26) %></div><h6>No classes yet</h6><p>Join a class with the code from your teacher to see your grades here.</p><a href="dashboard.php?page=classes" class="btn btn-accent">+ Join Class</a></div></div>
+    <% } %>
+
+    <% if (upcoming.length) { %>
+    <h5 class="fw-bold mt-4 mb-3">Upcoming Assignments</h5><div class="list-group">
+        <% upcoming.forEach((a) => { %>
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+            <div><div class="fw-semibold"><%= a.title %></div>
+            <small class="text-muted"><%= a.subject %></small></div>
+            <span class="stu-due-chip<%= a.soon ? ' ' + a.soon : '' %>"><%= a.chip %></span></div>
+        <% }) %>
+    </div>
+    <% } %>
+
+    <% if (latest_ann) { %>
+    <div class="card shadow-sm mt-3 border-warning"><div class="card-body"><small class="text-warning fw-bold">LATEST ANNOUNCEMENT</small>
+    <h6 class="fw-bold mb-1"><%= latest_ann.title %></h6>
+    <small><%- latest_ann.content_html %></small>
+    <br><small class="text-muted"><%= latest_ann.subject %> - <%= latest_ann.posted_at %></small></div></div>
+    <% } %>
+
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

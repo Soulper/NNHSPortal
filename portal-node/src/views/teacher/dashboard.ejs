@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: 'School Portal' }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: 'dashboard', unread: 0, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">My Classes</h4>
+            <p class="page-subtitle">Manage your classes, grades, and attendance</p>
+        </div>
+        <a href="dashboard.php?page=create_class" class="btn btn-sm btn-accent">+ New Class</a>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('book', 20) %></div><p class="stat-value"><%= classes.length %></p><span class="stat-label">Active Classes</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('users', 20) %></div><p class="stat-value"><%= total_students %></p><span class="stat-label">Total Students</span></div></div>
+    </div>
+
+    <% if (classes.length) { %>
+        <div class="row g-3">
+        <% classes.forEach((c) => { %>
+            <div class="col-md-4 col-sm-6">
+            <div class="card class-card shadow-sm accent-<%= c.accent %>">
+            <div class="card-body">
+            <h5 class="card-title mb-1"><%= c.subject %></h5>
+            <p class="card-text small text-muted mb-1"><%= c.section %> &middot; <%= c.school_year %></p>
+            <p class="card-text small text-muted mb-3"><%= c.student_count %> students &middot; <%- c.state %></p>
+            <% if (c.prog && c.prog.total > 0) { %>
+                <div class="gb-progress mb-3" role="progressbar" aria-valuenow="<%= c.pct %>" aria-valuemin="0" aria-valuemax="100" aria-label="Grading progress">
+                <div class="gb-progress-fill" style="width:<%= c.pct %>%"></div></div>
+            <% } %>
+            <div class="d-flex gap-2 flex-wrap">
+            <a href="dashboard.php?page=class&id=<%= c.cid %>" class="btn btn-sm btn-brand">Open</a>
+            <a href="dashboard.php?page=grades&id=<%= c.cid %>" class="btn btn-sm btn-outline-primary">Grades</a>
+            <a href="dashboard.php?page=attendance&id=<%= c.cid %>" class="btn btn-sm btn-outline-primary">Attendance</a>
+            <a href="dashboard.php?page=settings&id=<%= c.cid %>" class="btn btn-sm btn-outline-secondary">Settings</a>
+            </div></div></div></div>
+        <% }); %>
+        </div>
+    <% } else { %>
+        <div class="card"><div class="empty-state"><div class="empty-icon"><%- h.icon('school', 26) %></div><h6>No classes yet</h6><p>Create your first class to start recording grades.</p><a href="dashboard.php?page=create_class" class="btn btn-accent">+ New Class</a></div></div>
+    <% } %>
+
+    <% if (archived.length) { %>
+        <hr><h5 class="fw-bold text-muted mt-4">Archived Classes</h5><div class="row g-2">
+        <% archived.forEach((c) => { %>
+            <div class="col-md-3"><div class="card shadow-sm"><div class="card-body py-2"><small class="text-muted"><%= c.subject %> - <%= c.section %></small> <form method="POST" class="d-inline float-end"><input type="hidden" name="action" value="restore_class"><input type="hidden" name="class_id" value="<%= Number(c.id) %>"><button type="submit" class="btn btn-sm btn-outline-secondary">Restore</button></form></div></div></div>
+        <% }); %>
+        </div>
+    <% } %>
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

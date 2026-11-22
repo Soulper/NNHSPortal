@@ -1,0 +1,51 @@
+<!-- NAVBAR -->
+<nav class="navbar navbar-expand-lg navbar-dark app-navbar">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="dashboard.php"><img src="logo.ico" alt="School Portal" width="24" height="24" class="me-2">School Portal</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto align-items-lg-center">
+                <% if (is_admin) { %>
+                    <li class="nav-item"><a class="nav-link" href="admin.php">Admin Panel</a></li>
+                <% } %>
+                <% if (role === 'teacher') { %>
+                    <li class="nav-item"><a class="nav-link <%= page==='dashboard'?'active':'' %>" href="dashboard.php">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link <%= page==='profile'?'active':'' %>" href="dashboard.php?page=profile">Profile</a></li>
+                <% } else { %>
+                    <li class="nav-item"><a class="nav-link <%= page==='dashboard'?'active':'' %>" href="dashboard.php">Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link <%= page==='classes'?'active':'' %>" href="dashboard.php?page=classes">Classes</a></li>
+                    <li class="nav-item"><a class="nav-link <%= page==='grades'?'active':'' %>" href="dashboard.php?page=grades">Grades</a></li>
+                    <li class="nav-item"><a class="nav-link <%= page==='attendance'?'active':'' %>" href="dashboard.php?page=attendance">Attendance</a></li>
+                    <li class="nav-item"><a class="nav-link <%= page==='notifications'?'active':'' %>" href="dashboard.php?page=notifications">Notifications</a></li>
+                    <li class="nav-item"><a class="nav-link <%= page==='profile'?'active':'' %>" href="dashboard.php?page=profile">Profile</a></li>
+                <% } %>
+                <% if (typeof unread !== 'undefined' && unread > 0) { %>
+                    <li class="nav-item"><a class="nav-link" href="dashboard.php?page=notifications"><span class="badge bg-danger"><%= unread %></span> New</a></li>
+                <% } %>
+                <li class="nav-item d-none d-lg-flex align-items-center ms-lg-2">
+                    <span class="nav-user-chip">
+                        <span class="user-avatar"><%= chip_ini %></span>
+                        <span class="user-meta">
+                            <strong><%= full_name %></strong>
+                            <small><%= chip_role %></small>
+                        </span>
+                    </span>
+                </li>
+                <li class="nav-item ms-lg-1">
+                    <form method="POST" action="logout.php" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="<%= csrf %>">
+                        <button type="submit" class="btn btn-sm btn-outline-light">Logout</button>
+                    </form>
+                </li>
+                <li class="nav-item ms-lg-1">
+                    <button type="button" class="theme-toggle-btn" data-theme-toggle aria-label="Switch to dark mode">
+                        <svg data-icon="light" class="d-none" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                        <svg data-icon="dark" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    </button>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>

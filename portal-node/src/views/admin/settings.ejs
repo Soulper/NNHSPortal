@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">System Settings</h4>
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-sm"><div class="card-header fw-semibold">General</div><div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="action" value="save_settings">
+                    <div class="mb-2"><label class="small fw-semibold">School Name</label><input type="text" name="school_name" class="form-control" value="<%= school_name %>"></div>
+                    <div class="mb-3">
+                        <label class="small fw-semibold">Registration Mode</label>
+                        <select name="registration_mode" class="form-select">
+                            <option value="open" <%= registration_mode == 'open' ? 'selected' : '' %>>Open (anyone can sign up)</option>
+                            <option value="approval" <%= registration_mode == 'approval' ? 'selected' : '' %>>Approval required (admin enables account)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-brand">Save Settings</button>
+                </form>
+            </div></div>
+        </div>
+    </div>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

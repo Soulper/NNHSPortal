@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: 'School Portal' }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: 'grades', unread: 0, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (!cls) { %>
+        <div class="alert alert-danger">Class not found.</div>
+    <% } else if (no_terms) { %>
+        <div class="card"><div class="empty-state"><div class="empty-icon"><%- h.icon('calendar', 26) %></div><h6>No terms set up</h6><p>This class is not linked to an academic year yet, so there is no term to grade.</p><a href="dashboard.php?page=settings&id=<%= class_id %>" class="btn btn-accent">Class settings</a></div></div>
+    <% } else { %>
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Term Grades</h4>
+            <p class="page-subtitle">Enter the final Term Grade for each student.</p>
+        </div>
+        <a href="dashboard.php?page=class&id=<%= class_id %>" class="btn btn-sm btn-outline-secondary">Back to class</a>
+        <% if (Number(cls.is_advisory || 0) !== 0) { %>
+            <a href="dashboard.php?page=sf9&id=<%= class_id %>" class="btn btn-sm btn-accent">SF9 Report Cards</a>
+        <% } %>
+    </div>
+
+    <% // Term switcher: the DO 009 three-term year as a dropdown. A GET
+       // form so it still works without JavaScript; onchange submits it. %>
+    <form method="GET" class="gb-term-picker">
+        <input type="hidden" name="page" value="grades">
+        <input type="hidden" name="id" value="<%= class_id %>">
+        <label for="gbTermSelect">Term</label>
+        <select name="term" id="gbTermSelect" class="form-select form-select-sm" onchange="this.form.submit()">
+            <% terms.forEach((t) => { const tid = Number(t.id); %>
+                <option value="<%= tid %>" <%= tid === term_id ? 'selected' : '' %>>
+                    <%= t.label %><%= t.published ? ' (released)' : '' %>
+                </option>
+            <% }); %>
+        </select>
+    </form>
+
+    <div class="gb-head">
+        <div class="gb-head-row">
+            <div class="gb-head-main">
+                <span class="gb-head-subject"><%= cls.subject %></span>
+                <span class="gb-head-sep">&middot;</span>
+                <span class="gb-head-section"><%= cls.section %></span>
+                <span class="gb-head-sep">&middot;</span>
+                <span class="gb-head-term"><%= term_label %></span>
+            </div>
+            <% // Per-term cluster tag: labels which cluster THIS term's
+               // grades belong to. Saves against class_id + term_id only --
+               // it never changes the class itself. %>
+            <form method="POST" class="gb-cluster-form">
+                <%- csrf_field %>
+                <input type="hidden" name="action" value="set_term_cluster">
+                <input type="hidden" name="class_id" value="<%= class_id %>">
+                <input type="hidden" name="term_id" value="<%= term_id %>">
+                <label class="mb-0" for="gbClusterSelect">Cluster</label>
+                <select name="cluster_subject" id="gbClusterSelect" class="form-select form-select-sm"
+                        onchange="this.form.submit()"
+                        title="Label this term's grades with a cluster subject">
+                    <option value="" <%= term_tag ? '' : 'selected' %>>&mdash; set for <%= term_label %> &mdash;</option>
+                    <% Object.keys(clusters).forEach((name) => { const subs = clusters[name]; %>
+                        <optgroup label="<%= name %>">
+                            <% if (subs.length) { %>
+                                <% subs.forEach((sub) => { %>
+                                    <option value="<%= sub %>"
+                                            <%= term_tag && term_tag.subject === sub ? 'selected' : '' %>>
+                                        <%= sub %>
+                                    </option>
+                                <% }); %>
+                            <% } else { %>
+                                <option value="" disabled>&mdash; coming soon &mdash;</option>
+                            <% } %>
+                        </optgroup>
+                    <% }); %>
+                </select>
+            </form>
+        </div>
+        <p class="gb-head-hint">
+            Enter or press <kbd>&darr;</kbd> for the next student.
+            Grades save automatically.
+        </p>
+    </div>
+
+    <% if (progress.published) { %>
+        <div class="alert alert-success gb-notice">
+            <strong><%= term_label %> is released.</strong>
+            Students can see these grades. Editing them re-publishes automatically.
+        </div>
+    <% } %>
+
+    <div class="gb-progress-wrap" id="gbProgress"
+         data-total="<%= Number(progress.total) %>"
+         data-graded="<%= Number(progress.graded) %>"
+         data-average="<%= (progress.average === null || progress.average === undefined) ? '' : String(progress.average) %>"
+         data-descriptor="<%= String(progress.descriptor ?? '') %>"
+         data-below="<%= Number(progress.below_passing) %>"
+         data-published="<%= progress.published ? '1' : '0' %>">
+        <div class="gb-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow="<%= progress.total ? Math.round(Number(progress.graded) / Number(progress.total) * 100) : 0 %>"
+             aria-label="Grading progress">
+            <div class="gb-progress-fill" style="width:<%= progress.total ? Math.round(Number(progress.graded) / Number(progress.total) * 100) : 0 %>%"></div>
+        </div>
+        <div class="gb-stats">
+            <span class="gb-stat" id="gbStatCount">
+                <strong><%= Number(progress.graded) %></strong> of <strong><%= Number(progress.total) %></strong> students graded
+            </span>
+            <span class="gb-stat gb-stat-avg">
+                Class average
+                <strong id="gbStatAvg"><%- (progress.average === null || progress.average === undefined) ? '&mdash;' : h.esc(h.trim_num(progress.average)) %></strong>
+                <span class="gb-stat-desc" id="gbStatDesc"><%= String(progress.descriptor ?? '') %></span>
+            </span>
+            <% if (Number(progress.below_passing) > 0) { %>
+                <span class="gb-stat gb-stat-warn" id="gbStatBelow">
+                    <%= Number(progress.below_passing) %> below <%= Math.trunc(Number(passing_mark)) %>
+                </span>
+            <% } else { %>
+                <span class="gb-stat gb-stat-warn is-empty" id="gbStatBelow" hidden></span>
+            <% } %>
+        </div>
+    </div>
+
+    <% if (!roster.length) { %>
+        <div class="card"><div class="empty-state">
+            <div class="empty-icon"><%- h.icon('users', 26) %></div>
+            <h6>No students enrolled</h6>
+            <p>Add students to this class before recording grades.</p>
+            <a href="dashboard.php?page=class&id=<%= class_id %>" class="btn btn-accent">Open class roster</a>
+        </div></div>
+    <% } else { %>
+        <form method="POST" id="gradebookForm" class="gb-form">
+            <%- csrf_field %>
+            <input type="hidden" name="action" value="save_term_grades">
+            <input type="hidden" name="class_id" value="<%= class_id %>">
+            <input type="hidden" name="term_id" value="<%= term_id %>">
+
+            <div class="card gb-card">
+                <table class="gb-table" id="gradebookGrid">
+                    <thead>
+                        <tr>
+                            <th class="gb-th gb-th-num">Student No.</th>
+                            <th class="gb-th gb-th-name">Name</th>
+                            <th class="gb-th gb-th-grade">Term Grade</th>
+                            <th class="gb-th gb-th-desc">Descriptor</th>
+                            <th class="gb-th gb-th-result">Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <% roster.forEach((s) => {
+                        const sid = Number(s.user_id);
+                        const r = rows[sid] || { grade: null, descriptor: 'Not Graded', passed: false, stamp: null };
+                        const gval = (r.grade === null || r.grade === undefined) ? '' : h.trim_num(r.grade);
+                    %>
+                        <tr class="gb-row" data-sid="<%= sid %>" data-stamp="<%= r.stamp ?? '' %>">
+                            <td class="gb-td gb-td-num"><%= s.student_number %></td>
+                            <td class="gb-td gb-td-name"><%= s.full_name %></td>
+                            <td class="gb-td gb-td-grade">
+                                <input type="text"
+                                       name="grade[<%= sid %>]"
+                                       class="gb-input"
+                                       inputmode="decimal"
+                                       autocomplete="off"
+                                       value="<%= gval %>"
+                                       aria-label="Term Grade for <%= s.full_name %>"
+                                       placeholder="&mdash;">
+                                <% // Concurrency token for the no-JS form post. %>
+                                <input type="hidden" name="stamp[<%= sid %>]" value="<%= r.stamp ?? '' %>">
+                            </td>
+                            <td class="gb-td gb-td-desc"><span class="gb-desc"><%= String(r.descriptor ?? '') %></span></td>
+                            <td class="gb-td gb-td-result"><span class="gb-result"><%- h.rc_result(r.passed, r.grade !== null && r.grade !== undefined) %></span></td>
+                        </tr>
+                    <% }); %>
+                        <tr class="gb-foot-row">
+                            <td class="gb-td gb-td-num">&mdash;</td>
+                            <td class="gb-td gb-td-name">Class average</td>
+                            <td class="gb-td gb-td-grade">
+                                <strong id="gbAvgCell"><%- (averages.tg === null || averages.tg === undefined) ? '&mdash;' : h.esc(h.trim_num(averages.tg)) %></strong>
+                            </td>
+                            <td class="gb-td gb-td-desc"><span class="gb-desc" id="gbAvgDesc"><%= String(progress.descriptor ?? '') %></span></td>
+                            <td class="gb-td gb-td-result"><span class="gb-desc"><%= Number(averages.n) %> graded</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="gb-save-bar">
+                <span class="gb-save-status" id="gbSaveStatus" role="status" aria-live="polite"></span>
+                <% if (!progress.published) { %>
+                    <% // Always rendered (hidden when incomplete) so the JS can
+                       // reveal it the moment the last student is graded,
+                       // without a reload. The server still gates the POST. %>
+                    <button type="submit" class="btn btn-accent<%= progress.complete ? '' : ' ms-auto' %>"
+                            form="gbPublishForm"<%= progress.complete ? '' : ' hidden' %>>
+                        Release <%= term_label %> to students
+                    </button>
+                <% } %>
+                <button type="submit" class="btn btn-brand<%= (!progress.published && progress.complete) ? '' : ' ms-auto' %>">Save</button>
+            </div>
+        </form>
+
+        <% // Kept OUTSIDE #gradebookForm: nesting a <form> inside another is
+           // invalid HTML and browsers silently drop the inner one, which
+           // breaks the enclosing Save button. The button reaches it via form="". %>
+        <form method="POST" id="gbPublishForm" class="d-none">
+            <%- csrf_field %>
+            <input type="hidden" name="action" value="publish_term">
+            <input type="hidden" name="class_id" value="<%= class_id %>">
+            <input type="hidden" name="term_id" value="<%= term_id %>">
+        </form>
+    <% } %>
+    <% } %>
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

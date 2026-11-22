@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar') %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">School Announcements</h4>
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="card shadow-sm"><div class="card-header fw-semibold">Post Announcement</div><div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="action" value="add_school_ann">
+                    <div class="mb-2"><input type="text" name="title" class="form-control" placeholder="Title" required></div>
+                    <div class="mb-2"><textarea name="content" class="form-control" rows="4" placeholder="Content" required></textarea></div>
+                    <div class="mb-2">
+                        <select name="audience" class="form-select">
+                            <option value="all">Everyone</option>
+                            <option value="students">Students only</option>
+                            <option value="teachers">Teachers only</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-brand">Post</button>
+                </form>
+            </div></div>
+        </div>
+        <div class="col-md-8">
+            <% if (!list.length) { %>
+                <div class="alert alert-info">No announcements yet.</div>
+            <% } else { %>
+                <div class="list-group">
+                <% for (const a of list) { %>
+                    <div class="list-group-item"><div class="d-flex justify-content-between"><div><div class="fw-semibold"><%= a.title %> <span class="badge bg-secondary"><%= a.audience %></span></div>
+                    <small><%- h.esc(a.content).replace(/\n/g, '<br />\n') %></small><br><small class="text-muted"><%= a.email ?? 'system' %> | <%= a.posted_at %></small></div>
+                    <form method="POST" class="d-inline"><input type="hidden" name="action" value="delete_school_ann"><input type="hidden" name="ann_id" value="<%= a.id %>"><button type="submit" class="btn btn-sm btn-outline-danger">&times;</button></form></div></div>
+                <% } %>
+                </div>
+            <% } %>
+        </div>
+    </div>
+
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

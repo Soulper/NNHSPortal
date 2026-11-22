@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('partials/app_head', { title: 'School Portal' }) %>
+</head>
+<body>
+<%- include('partials/navbar', { page: page || '', unread: (typeof unread !== 'undefined' ? unread : 0), chip_role: (typeof chip_role !== 'undefined' ? chip_role : (role === 'teacher' ? 'Teacher' : 'Student')), chip_ini: (typeof chip_ini !== 'undefined' ? chip_ini : 'U') }) %>
+<div class="container mt-4">
+    <div class="alert alert-danger"><%= message %></div>
+</div>
+<%- include('partials/footer') %>
+</body>
+</html>

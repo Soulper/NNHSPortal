@@ -1,0 +1,26 @@
+{
+  "name": "research-student-portal-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Research Student Portal - Node.js/Express port of the PHP original (Vercel-ready)",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "api/index.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node tests/run_all.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "@vercel/blob": "^0.27.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-session": "^2.1.0",
+    "ejs": "^3.1.10",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "jszip": "^3.10.1",
+    "multer": "^1.4.5-lts.1"
+  }
+}

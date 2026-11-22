@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: 'School Portal' }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: 'attendance', unread: 0, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (!cls) { %>
+        <div class="alert alert-danger">Class not found.</div>
+    <% } else { %>
+    <div class="page-header">
+        <div>
+            <a class="small d-inline-block mb-1" href="dashboard.php?page=class&id=<%= class_id %>">&larr; Back to Class</a>
+            <h4 class="page-title">Attendance: <%= cls.subject %></h4>
+            <p class="page-subtitle"><%= cls.section %></p>
+        </div>
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <input type="hidden" name="page" value="attendance">
+                <input type="hidden" name="id" value="<%= class_id %>">
+                <label class="form-label small mb-0">Date</label>
+                <input type="date" name="date" class="form-control form-control-sm" value="<%= date %>">
+            </div>
+            <div class="col-auto"><button type="submit" class="btn btn-sm btn-outline-primary">View</button></div>
+        </form>
+    </div>
+
+    <form method="POST">
+        <input type="hidden" name="action" value="mark_attendance">
+        <input type="hidden" name="class_id" value="<%= class_id %>">
+        <input type="hidden" name="date" value="<%= date %>">
+        <div class="table-responsive">
+        <table class="table table-hover table-sm">
+            <thead><tr><th>Student</th><th>Status</th></tr></thead>
+            <tbody>
+            <% students.forEach((s) => {
+                const sid = Number(s.id);
+                const current = att_map[sid] ?? 'present';
+            %>
+                <tr>
+                    <td><%= s.full_name %></td>
+                    <td>
+                        <input type="hidden" name="student_id[]" value="<%= sid %>">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="status_<%= sid %>" value="present" id="p_<%= sid %>" <%= current==='present'?'checked':'' %>>
+                            <label class="form-check-label small" for="p_<%= sid %>">Present</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="status_<%= sid %>" value="late" id="l_<%= sid %>" <%= current==='late'?'checked':'' %>>
+                            <label class="form-check-label small" for="l_<%= sid %>">Late</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="status_<%= sid %>" value="excused" id="e_<%= sid %>" <%= current==='excused'?'checked':'' %>>
+                            <label class="form-check-label small" for="e_<%= sid %>">Excused</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="status_<%= sid %>" value="absent" id="a_<%= sid %>" <%= current==='absent'?'checked':'' %>>
+                            <label class="form-check-label small" for="a_<%= sid %>">Absent</label>
+                        </div>
+                    </td>
+                </tr>
+            <% }); %>
+            </tbody>
+        </table>
+        </div>
+        <button type="submit" class="btn btn-brand">Save Attendance</button>
+    </form>
+    <% } %>
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

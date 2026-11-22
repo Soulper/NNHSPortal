@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: page, unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">My Attendance</h4>
+
+    <% if (!has_records) { %>
+    <div class="card"><div class="empty-state"><div class="empty-icon"><%- h.icon('calendar', 26) %></div><h6>No attendance records yet</h6><p>Your teachers will record attendance per class here.</p></div></div>
+    <% } else { %>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('check', 20) %></div><p class="stat-value <%= rate_cls %>"><%= rate %>%</p><span class="stat-label">Attendance Rate</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('check', 20) %></div><p class="stat-value"><%= counts.present %></p><span class="stat-label">Present</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('calendar', 20) %></div><p class="stat-value"><%= counts.late %></p><span class="stat-label">Late</span></div></div>
+        <div class="col-md-3 col-6"><div class="card stat-card"><div class="stat-icon"><%- h.icon('inbox', 20) %></div><p class="stat-value"><%= counts.absent + counts.excused %></p><span class="stat-label">Absent / Excused</span></div></div>
+    </div>
+
+    <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0">
+    <thead><tr><th>Date</th><th>Subject</th><th>Section</th><th>Status</th></tr></thead><tbody>
+    <% records.forEach((r) => { %>
+        <tr><td><%= r.date %></td><td><%= r.subject %></td><td><%= r.section %></td>
+        <td><span class="badge bg-<%= r.color %>"><%= r.status_uc %></span></td></tr>
+    <% }) %>
+    </tbody></table></div></div>
+
+    <% } %>
+
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>

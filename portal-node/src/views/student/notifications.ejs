@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+
+<%- include('../partials/navbar', { page: page, unread: unread, chip_role: chip_role, chip_ini: chip_ini }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <h4 class="page-title mb-1">Notifications</h4>
+
+    <% if (!list.length) { %>
+    <div class="alert alert-info">No notifications.</div>
+    <% } else { %>
+    <div class="list-group">
+    <% list.forEach((n) => { %>
+        <div class="list-group-item"><a href="<%= n.link %>" class="text-decoration-none"><%= n.message %></a>
+        <br><small class="text-muted"><%= n.created_at %></small></div>
+    <% }) %>
+    </div>
+    <% } %>
+
+</div>
+
+<%- include('../partials/footer') %>
+</body>
+</html>
