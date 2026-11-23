@@ -115,17 +115,53 @@ async function student_dashboard(req, res) {
         [user_id]);
     const drows = await descriptor_rows_all(client);
 
-    // Per-class details: teacher + latest released grade chip.
+    // Per-class details, set-based. Workers caps every invocation at ~50
+    // subrequests and each query is one, so the old per-class/per-term loops
+    // (teacher + terms + published + grades per class) blew the cap on a
+    // populated dashboard. Four IN (...) queries replace them; the semantics
+    // of class_terms / class_is_published / direct_term_grade are mirrored.
+    const classIds = enrolledRows.map((c) => Number(c.id));
+    const inPh = classIds.map(() => '?').join(',');
+    const teacherMap = new Map();
+    const termsByClass = new Map();
+    const publishedSet = new Set();
+    const gradeMap = new Map();
+    if (classIds.length) {
+        for (const t of await all(`SELECT user_id, full_name FROM teachers WHERE user_id IN (${inPh})`, classIds)) {
+            teacherMap.set(Number(t.user_id), t.full_name == null ? '' : String(t.full_name));
+        }
+        for (const t of await all(`SELECT c.id AS class_id, t.* FROM terms t JOIN classes c ON c.academic_year_id = t.academic_year_id WHERE c.id IN (${inPh}) ORDER BY t.number`, classIds)) {
+            const k = Number(t.class_id);
+            if (!termsByClass.has(k)) termsByClass.set(k, []);
+            termsByClass.get(k).push(t);
+        }
+        for (const r of await all(`SELECT class_id, term_id FROM class_term_status WHERE class_id IN (${inPh})`, classIds)) {
+            publishedSet.add(Number(r.class_id) + ':' + Number(r.term_id));
+        }
+        for (const g of await all(`SELECT class_id, term_id, grade FROM term_grades WHERE student_id = ? AND class_id IN (${inPh})`, [user_id, ...classIds])) {
+            gradeMap.set(Number(g.class_id) + ':' + Number(g.term_id),
+                g.grade === null || g.grade === undefined ? null : Number(g.grade));
+        }
+    }
+
+    // Per-class details: teacher + released count + latest released grade chip.
     const enrolled = [];
     for (const c of enrolledRows) {
-        const tq = await get('SELECT full_name FROM teachers WHERE user_id=?', [c.teacher_id]);
-        const teacher = tq && tq.full_name != null ? String(tq.full_name) : '';
-        const all_terms = await class_terms(client, c.id);
+        const cid = Number(c.id);
+        const teacher = teacherMap.get(Number(c.teacher_id)) || '';
+        const all_terms = termsByClass.get(cid) || [];
         let released = 0;
-        for (const t of all_terms) if (await class_is_published(client, c.id, t.id)) released++;
-        const latest = await stu_latest_grade(client, c.id, user_id);
+        let latest = null;
+        for (const t of all_terms) {
+            const pub = publishedSet.has(cid + ':' + Number(t.id));
+            if (pub) released++;
+            if (pub) {
+                const g = gradeMap.get(cid + ':' + Number(t.id));
+                if (g !== null && g !== undefined) latest = g; // terms in order, last one wins
+            }
+        }
         enrolled.push({
-            id: Number(c.id),
+            id: cid,
             subject: c.subject,
             section: c.section == null ? '' : String(c.section),
             teacher,
@@ -164,16 +200,18 @@ async function student_dashboard(req, res) {
     }
     const att_rate = att_total > 0 ? Math.round((att_present / att_total) * 100) : null;
 
-    // Overall average across released terms + needs-attention classes.
+    // Overall average across released terms + needs-attention classes
+    // (reuses the set-based maps above — no extra queries).
     let overall = null;
     const published_tgs = [];
     const need_attention_parts = [];
     for (const c of enrolledRows) {
-        const terms = await class_terms(client, c.id);
+        const cid = Number(c.id);
+        const terms = termsByClass.get(cid) || [];
         for (const t of terms) {
-            if (!(await class_is_published(client, c.id, t.id))) continue;
-            const g = await direct_term_grade(client, c.id, user_id, t.id);
-            if (g !== null) {
+            if (!publishedSet.has(cid + ':' + Number(t.id))) continue;
+            const g = gradeMap.get(cid + ':' + Number(t.id));
+            if (g !== null && g !== undefined) {
                 published_tgs.push(g);
                 if (g < PASSING_MARK) {
                     need_attention_parts.push(esc(c.subject) + ' (' + esc(t.label) + '): ' + trim_num(g));
