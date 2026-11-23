@@ -254,6 +254,14 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip);
+-- Uploaded file bytes (Cloudflare Workers mode, DB_STORAGE=1). PHP and local
+-- Node keep files on disk. On Workers they live here and are served through
+-- the same access-controlled download route.
+CREATE TABLE IF NOT EXISTS files (
+    name TEXT PRIMARY KEY,
+    data BLOB NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS academic_years (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     label TEXT NOT NULL UNIQUE,
@@ -628,7 +636,16 @@ function initDb() {
                     await run('INSERT INTO descriptor_rows (min_grade, max_grade, label_en, label_fil) VALUES (?,?,?,?)', row);
                 }
             }
-            await seed_once();
+            try {
+                await seed_once();
+            } catch (e) {
+                // On a remote DB (Turso) two cold isolates can race the seed;
+                // UNIQUE constraints (users.email, academic_years.label) let
+                // exactly one win. If the data is there now, the loser just
+                // moves on.
+                const c = await get('SELECT COUNT(*) AS n FROM academic_years');
+                if (Number(c.n) === 0) throw e;
+            }
             await migrate_to_direct_grading();
             await ensure_three_terms();
         })();

@@ -10,6 +10,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// DB_STORAGE=1 (Cloudflare Workers): uploaded bytes are stored in the
+// database's `files` table (Turso) instead of a local folder or Vercel Blob.
+// Workers has no writable disk, and this keeps uploads across restarts.
+const DB_STORAGE = process.env.DB_STORAGE === '1';
+
 const DEFAULT_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx',
     'ppt', 'pptx', 'txt', 'csv', 'zip', 'rar', '7z'];
 
@@ -90,6 +95,15 @@ async function save_upload(file, prefix, allowed_exts = null, max_size_mb = MAX_
     }
     const name = prefix + '_' + crypto.randomBytes(8).toString('hex') + '.' + ext;
 
+    if (DB_STORAGE) {
+        try {
+            const db = require('./db');
+            await db.run('INSERT INTO files (name, data) VALUES (?, ?)', [name, file.buffer]);
+            return { file: name, error: '' };
+        } catch (e) {
+            return { file: '', error: 'Could not save the uploaded file.' };
+        }
+    }
     if (is_blob_configured()) {
         // Vercel Blob. The returned URL is unguessable and stored in the DB;
         // download.php still authorises every request before redirecting.
@@ -118,9 +132,35 @@ async function read_stored(file_key) {
             return null;
         }
     }
+    if (DB_STORAGE) {
+        try {
+            const db = require('./db');
+            const row = await db.get('SELECT data FROM files WHERE name=?', [file_key]);
+            return row && row.data != null ? Buffer.from(row.data) : null;
+        } catch (_) {
+            return null;
+        }
+    }
     const p = path.join(upload_dir(), path.basename(file_key));
     if (!fs.existsSync(p)) return null;
     return fs.readFileSync(p);
 }
 
-module.exports = { save_upload, read_stored, upload_dir, sniff_mime, DEFAULT_EXTS, MAX_SIZE_MB };
+// Does a stored key exist? URL keys answer true — like download.php's flow,
+// their existence is only probed after the access checks (via read_stored).
+async function stored_exists(file_key) {
+    if (!file_key) return false;
+    if (/^https?:\/\//i.test(file_key)) return true;
+    if (DB_STORAGE) {
+        const db = require('./db');
+        const row = await db.get('SELECT 1 AS x FROM files WHERE name=?', [file_key]);
+        return !!row;
+    }
+    try {
+        return fs.statSync(path.join(upload_dir(), path.basename(file_key))).isFile();
+    } catch (_) {
+        return false;
+    }
+}
+
+module.exports = { save_upload, read_stored, stored_exists, upload_dir, sniff_mime, DEFAULT_EXTS, MAX_SIZE_MB };

@@ -31,6 +31,33 @@ npm install
 npm run dev          # → http://localhost:8000
 ```
 
+## Deploy to Cloudflare Workers (free)
+
+The Node edition runs on **Cloudflare Workers** — always-on (no cold starts for visitors),
+no credit card, 100k requests/day on the free plan — with the database on **Turso**'s free
+tier. Static files (`style.css`, `script.js`, `theme.js`, `logo.ico`) are served by
+Cloudflare's assets feature; uploaded files are stored inside the database (`files` table),
+so they survive restarts and redeploys.
+
+1. **Turso** (database, free, no card): create a database at
+   <https://platform.turso.tech>, copy its URL (`libsql://…turso.io`) and create an auth
+   token for it.
+2. **Cloudflare** (hosting, free, no card): create an account at
+   <https://dash.cloudflare.com/sign-up>.
+3. Deploy from this folder:
+   ```bash
+   npx wrangler login
+   npx wrangler secret put DATABASE_URL      # libsql://your-db.turso.io
+   npx wrangler secret put DATABASE_TOKEN    # the Turso token
+   npx wrangler secret put SESSION_SECRET    # any long random string
+   npx wrangler deploy
+   ```
+4. Open the printed `https://research-student-portal.<you>.workers.dev`.
+
+The first request creates the schema and seeds the demo accounts — **change or delete
+them immediately** (Admin → Users, Profile → Change Password). If you edit any template
+(`src/views/**`), regenerate the bundle with `npm run build:views` before deploying.
+
 No database setup is needed: `data/school_portal.db` is created and seeded on
 first request (demo accounts + classes, all with password `password123`).
 

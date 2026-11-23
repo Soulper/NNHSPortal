@@ -19,7 +19,10 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '..', 'src', 'views'));
 
 // ---- sessions (signed cookies; survives serverless) ----
-const isProd = !!process.env.VERCEL;
+// WORKER_MODE: running on Cloudflare Workers. There HTTPS terminates at the
+// edge, so the session cookie is always marked Secure.
+const WORKER_MODE = process.env.WORKER_MODE === '1';
+const isProd = !!process.env.VERCEL || WORKER_MODE;
 app.use(cookieSession({
     name: 'portal.sid',
     keys: [process.env.SESSION_SECRET || 'dev-insecure-secret-change-me'],
@@ -29,12 +32,32 @@ app.use(cookieSession({
     secure: isProd,
 }));
 
+// WORKER_MODE: workers.dev / custom domains are always HTTPS at the edge
+// (X-Forwarded-Proto: https), but local `wrangler dev` is plain HTTP. The
+// cookies package throws on Secure-over-HTTP and cookie-session swallows it,
+// which silently kills sessions — so apply the PHP original's rule instead:
+// mark the cookie Secure only when the request itself arrived over HTTPS.
+if (WORKER_MODE) {
+    app.use((req, res, next) => {
+        req.sessionOptions.secure = req.secure; // trust proxy → X-Forwarded-Proto
+        next();
+    });
+}
+
 // ---- body parsers (uploads use multer, see routes) ----
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.json({ limit: '2mb' }));
 
-// ---- static assets (served from /public on Vercel too) ----
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// ---- static assets ----
+// On Workers, Cloudflare's static-assets feature serves /public before the
+// worker runs (wrangler.jsonc) and there is no disk for express.static, so
+// the middleware is local/Vercel-only; worker mode installs the render shim
+// (res.render without a filesystem — see src/worker_shim.js).
+if (!WORKER_MODE) {
+    app.use(express.static(path.join(__dirname, '..', 'public')));
+} else {
+    require('../src/worker_shim').apply_worker_view_shim(app);
+}
 
 // ---- database boot (schema + seed + migrations, once per instance) ----
 app.use(async (req, res, next) => {

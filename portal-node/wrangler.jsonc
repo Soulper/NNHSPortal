@@ -1,0 +1,31 @@
+{
+  // Cloudflare Workers deployment of the Node portal.
+  // Secrets (set with: npx wrangler secret put <NAME>):
+  //   DATABASE_URL     libsql://...  (Turso, free tier)
+  //   DATABASE_TOKEN   Turso auth token
+  //   SESSION_SECRET   long random string
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "research-student-portal",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Static files (style.css, script.js, theme.js, logo.ico) are served by
+  // Cloudflare's assets feature; everything else reaches the worker — the
+  // same split vercel.json expressed with a rewrite.
+  "assets": {
+    "directory": "./public"
+  },
+  "vars": {
+    // Render templates from the generated views bundle (no fs on Workers).
+    "WORKER_MODE": "1",
+    // Store uploaded files inside the database (Turso) — Workers has no
+    // writable disk, and this keeps uploads across deploys/restarts.
+    "DB_STORAGE": "1",
+    // Vercel-equivalent body cap; Workers allows 100MB but the app stays
+    // conservative (gradebook JSON bodies are tiny, uploads are ~a few MB).
+    "UPLOAD_MAX_MB": "4"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

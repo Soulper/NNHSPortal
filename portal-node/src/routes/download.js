@@ -10,7 +10,6 @@
 // original only knew local files, so the path-traversal guard is applied to
 // non-URL keys only — a URL cannot traverse the upload dir.
 // ================================================================
-const fs = require('fs');
 const path = require('path');
 const express = require('express');
 
@@ -19,18 +18,9 @@ const {
     require_login, current_user_id, is_admin_user,
     teacher_owns_class, student_in_class,
 } = require('../config');
-const { read_stored, upload_dir } = require('../storage');
+const { read_stored, stored_exists } = require('../storage');
 
 const router = express.Router();
-
-// PHP's is_file(): true only for existing regular files (a directory is not a file).
-function local_file_exists(name) {
-    try {
-        return fs.statSync(path.join(upload_dir(), name)).isFile();
-    } catch (_) {
-        return false;
-    }
-}
 
 router.get('/download.php', require_login, async (req, res) => {
     const file = String((req.query && req.query.f) ?? '');
@@ -48,9 +38,10 @@ router.get('/download.php', require_login, async (req, res) => {
     }
 
     // PHP checked the local file before the access rules (404 beats 403 for a
-    // missing local file). Blob URLs cannot be probed without fetching them,
-    // so for those the 404 comes after the access checks instead.
-    if (!is_url && !local_file_exists(file)) {
+    // missing local file). URL keys (Vercel Blob) cannot be probed without
+    // fetching them, so for those the 404 comes after the access checks
+    // instead; stored_exists() answers true for them.
+    if (!is_url && !(await stored_exists(file))) {
         res.status(404).send('File not found.');
         return;
     }
