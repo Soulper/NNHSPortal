@@ -9,6 +9,18 @@
   "main": "worker.js",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
+  // esbuild honours iconv-lite's `browser` field and stubs out its Node-only
+  // modules, but iconv-lite still calls them at require time under workerd
+  // (process.versions.node exists) and the worker crashes at boot. The app
+  // only ever decodes utf-8/latin1 request bodies, so this shim replaces it.
+  "alias": {
+    "iconv-lite": "./src/shims/iconv-lite.js",
+    // The Node entry eagerly loads libsql's native SQLite binaries (needed
+    // only for file: URLs, which Workers never uses) and dynamic native
+    // requires cannot exist in a Worker bundle. The /web entry is the same
+    // client over HTTP, built for edge runtimes.
+    "@libsql/client": "@libsql/client/web"
+  },
   // Static files (style.css, script.js, theme.js, logo.ico) are served by
   // Cloudflare's assets feature; everything else reaches the worker — the
   // same split vercel.json expressed with a rewrite.

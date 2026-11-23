@@ -57,12 +57,21 @@ function set_cell(sheet, col, row, value) {
 }
 
 // Load the template fresh for every export so the master copy is never touched.
-async function sf9_load_template() {
+// On Workers there is no filesystem: scripts/build_views.js also bundles the
+// template as base64 (src/sf9-template-b64.js), which is read here instead.
+function sf9_template_buffer() {
+    if (process.env.WORKER_MODE === '1') {
+        return Buffer.from(require('./sf9-template-b64').data, 'base64');
+    }
     if (!fs.existsSync(SF9_TEMPLATE)) {
         throw new Error('SF9 template is missing: ' + SF9_TEMPLATE);
     }
+    return fs.readFileSync(SF9_TEMPLATE);
+}
+
+async function sf9_load_template() {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(SF9_TEMPLATE);
+    await wb.xlsx.load(sf9_template_buffer());
     return wb;
 }
 

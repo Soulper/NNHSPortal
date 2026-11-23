@@ -1,37 +1,137 @@
 // ================================================================
-// VIEW BUNDLER — packs every EJS template into one JS module
+// VIEW PRECOMPILER — turns every EJS template into a real function
 // ================================================================
-// Cloudflare Workers has no filesystem, so res.render()/include() cannot
-// read .ejs files from disk. This script generates src/views-bundle.js,
-// a map of "<relative/posix/path>.ejs" -> template text, which
-// src/worker_shim.js serves instead of the filesystem.
+// Cloudflare Workers forbids code generation at runtime (no eval, no
+// new Function), which rules out EJS's own runtime compiler entirely.
+// This script therefore precompiles every template into
+// src/views-compiled.js: one function per template, with the exact
+// signature EJS's own runtime wrapper uses:
 //
-// Re-run after editing any template:  node scripts/build_views.js
-// (The generated file is committed, so deploys need no build step.)
+//     fn(locals, escapeFn, include, rethrow)  ->  html string
+//
+// Notes:
+//   - templates are compiled with _with:false + destructuredLocals, because
+//     EJS's default `with (locals) {}` is illegal in strict-mode ES modules
+//     (the Workers bundle). Missing locals simply become undefined.
+//   - the locals list is extracted from each generated body: identifiers
+//     that are not declared, not EJS helpers and not JS builtins. A generous
+//     superset is harmless (extra names just read undefined).
+//   - includes stay runtime-resolved: src/worker_shim.js supplies the same
+//     include closure EJS would, so partials behave exactly as before.
+//   - the SF9 xlsx template is bundled as base64 for src/sf9_export.js.
+//
+// Re-run after editing any template:  npm run build:views
+// (The generated files are committed, so deploys need no build step.)
 // ================================================================
 const fs = require('fs');
 const path = require('path');
+const ejs = require('ejs');
 
-const root = path.join(__dirname, '..', 'src', 'views');
-const out = {};
+const VROOT = '/__views__/';
+const viewsRoot = path.join(__dirname, '..', 'src', 'views');
 
+// Identifiers that are never template locals: EJS's generated helpers,
+// JS reserved words and globals templates may legitimately call.
+const NOT_LOCALS = new Set([
+    // ejs helpers / params
+    '__output', '__append', '__locals', '__line', '__lines', '__filename',
+    'locals', 'escapeFn', 'include', 'rethrow', 'arguments',
+    // reserved words
+    'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break',
+    'continue', 'return', 'function', 'var', 'let', 'const', 'new', 'typeof',
+    'instanceof', 'in', 'of', 'this', 'null', 'true', 'false', 'undefined',
+    'void', 'delete', 'throw', 'try', 'catch', 'finally', 'class', 'extends',
+    'super', 'yield', 'await', 'async', 'static', 'get', 'set',
+    // globals templates may call
+    'Math', 'Object', 'JSON', 'Date', 'Array', 'String', 'Number', 'Boolean',
+    'RegExp', 'Error', 'TypeError', 'Promise', 'Map', 'Set', 'Symbol',
+    'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent',
+    'decodeURIComponent', 'console', 'Buffer', 'process', 'globalThis',
+]);
+
+function compile_template(key) {
+    const text = fs.readFileSync(path.join(viewsRoot, key), 'utf8');
+    const t = new ejs.Template(text, {
+        filename: VROOT + key,
+        compileDebug: false,
+        _with: false,
+    });
+    t.generateSource();
+
+    // ---- extract this template's locals from its generated body ----
+    // Drop strings and property accesses first, then take every identifier
+    // that is not declared in the body and not a helper/builtin.
+    const body = t.source
+        .replace(/'(?:[^'\\\n]|\\.)*'/g, ' ')
+        .replace(/"(?:[^"\\\n]|\\.)*"/g, ' ')
+        .replace(/`(?:[^`\\]|\\.)*`/g, ' ')
+        .replace(/\.[A-Za-z_$][\w$]*/g, ' ');
+    const declared = new Set();
+    for (const m of body.matchAll(/\b(?:var|let|const|function)\s+([A-Za-z_$][\w$]*)/g)) {
+        declared.add(m[1]);
+    }
+    const locals = new Set();
+    for (const m of body.matchAll(/[A-Za-z_$][\w$]*/g)) {
+        const id = m[0];
+        if (declared.has(id) || NOT_LOCALS.has(id)) continue;
+        locals.add(id);
+    }
+
+    // ---- prepend exactly what ejs compile() would build with _with:false ----
+    // (mirrors ejs.js lines 588-618: __output + __append + destructuring)
+    let src =
+        '  var __output = "";\n' +
+        '  function __append(s) { if (s !== undefined && s !== null) __output += s }\n';
+    if (locals.size) {
+        src += '  var __locals = (locals || {}),\n  ' +
+            [...locals].map((n) => n + ' = __locals.' + n).join(',\n  ') + ';\n';
+    }
+    src += t.source + '\n  return __output;\n';
+
+    // Build-time syntax check (Node may eval; the Worker never does).
+    new Function('locals,escapeFn,include,rethrow', src);
+
+    return 'function (locals, escapeFn, include, rethrow) {\n' + src + '}';
+}
+
+// ---- generate src/views-compiled.js ----
+const keys = [];
 (function walk(dir) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, e.name);
         if (e.isDirectory()) walk(p);
-        else if (e.name.endsWith('.ejs')) {
-            out[path.relative(root, p).replace(/\\/g, '/')] = fs.readFileSync(p, 'utf8');
-        }
+        else if (e.name.endsWith('.ejs')) keys.push(path.relative(viewsRoot, p).replace(/\\/g, '/'));
     }
-})(root);
+})(viewsRoot);
+keys.sort();
 
-const header =
+let out =
     '// GENERATED by scripts/build_views.js — do not edit by hand.\n' +
-    '// All EJS templates bundled as strings so the app can render without a\n' +
-    '// filesystem (Cloudflare Workers). See src/worker_shim.js.\n' +
-    'module.exports = ';
+    '// Every EJS template precompiled to a real function (no eval at runtime),\n' +
+    '// because Cloudflare Workers forbids code generation. Signature matches\n' +
+    "// EJS's runtime wrapper: fn(locals, escapeFn, include, rethrow) -> html.\n" +
+    '// Regenerate with: npm run build:views\n' +
+    'module.exports = {\n';
+for (const key of keys) {
+    out += '  ' + JSON.stringify(key) + ': ' + compile_template(key) + ',\n';
+}
+out += '};\n';
+fs.writeFileSync(path.join(__dirname, '..', 'src', 'views-compiled.js'), out);
+console.log('views-compiled.js written:', keys.length, 'templates,',
+    Math.round(fs.statSync(path.join(__dirname, '..', 'src', 'views-compiled.js')).size / 1024) + ' KB');
 
-fs.writeFileSync(path.join(__dirname, '..', 'src', 'views-bundle.js'),
-    header + JSON.stringify(out, null, 1) + ';\n');
-console.log('views-bundle.js written:', Object.keys(out).length, 'templates,', 
-    Math.round(fs.statSync(path.join(__dirname, '..', 'src', 'views-bundle.js')).size / 1024) + ' KB');
+// ---- SF9 template (xlsx) as base64, for the no-filesystem Workers build ----
+const tplPath = path.join(__dirname, '..', 'templates', 'G12-ACADEMIC_MANUAL_SF9-SY-2026-2027.xlsx');
+if (fs.existsSync(tplPath)) {
+    const b64 = fs.readFileSync(tplPath).toString('base64');
+    const tplHeader =
+        '// GENERATED by scripts/build_views.js — do not edit by hand.\n' +
+        '// The SF9 xlsx template as base64, read by src/sf9_export.js on Workers\n' +
+        '// (no filesystem there). Regenerate with: npm run build:views\n' +
+        'module.exports = { data: ';
+    fs.writeFileSync(path.join(__dirname, '..', 'src', 'sf9-template-b64.js'),
+        tplHeader + JSON.stringify(b64) + ' };\n');
+    console.log('sf9-template-b64.js written:', Math.round(b64.length / 1024) + ' KB (base64)');
+} else {
+    console.warn('SF9 template not found at', tplPath, '- skipping bundle');
+}

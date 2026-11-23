@@ -11,17 +11,25 @@ const cookieSession = require('cookie-session');
 const { initDb } = require('../src/db');
 const { session_middleware, flash_middleware } = require('../src/config');
 
+// WORKER_MODE: running on Cloudflare Workers (see wrangler.jsonc). Defined
+// before any filesystem touch — Workers has no disk, so all path uses are
+// skipped there and __dirname is not even defined in the ESM bundle.
+const WORKER_MODE = process.env.WORKER_MODE === '1';
+
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', true); // real client IP behind Vercel's proxy
+app.set('trust proxy', true); // real client IP behind Vercel's/Cloudflare's proxy
 
 app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, '..', 'src', 'views'));
+// Workers renders from the generated views bundle (src/worker_shim.js), which
+// bypasses Express's fs-based view resolution entirely.
+if (!WORKER_MODE) {
+    app.set('views', path.join(__dirname, '..', 'src', 'views'));
+}
 
 // ---- sessions (signed cookies; survives serverless) ----
-// WORKER_MODE: running on Cloudflare Workers. There HTTPS terminates at the
-// edge, so the session cookie is always marked Secure.
-const WORKER_MODE = process.env.WORKER_MODE === '1';
+// HTTPS terminates at the edge on both Vercel and Cloudflare, so the session
+// cookie is marked Secure in production (per-request override below for Workers).
 const isProd = !!process.env.VERCEL || WORKER_MODE;
 app.use(cookieSession({
     name: 'portal.sid',
