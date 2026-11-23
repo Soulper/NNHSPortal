@@ -308,6 +308,19 @@ $db->exec("CREATE TABLE IF NOT EXISTS grading_components (
     FOREIGN KEY (policy_id) REFERENCES grading_policies(id) ON DELETE CASCADE
 )");
 
+// Legacy-shape rebuild: databases created before the per-policy restructure
+// hold grading_components / transmutation_rows / descriptor_rows WITHOUT a
+// policy_id column, which install_policy_from_catalog() requires. All three
+// are derived tables — migrate_grading_policies() re-installs their rows
+// from the catalogue — so an old-shape table is dropped here and the
+// CREATE TABLE IF NOT EXISTS statements below recreate it in the current
+// shape. (CREATE TABLE IF NOT EXISTS alone cannot upgrade a live table.)
+foreach (['grading_components', 'transmutation_rows', 'descriptor_rows'] as $legacy_tbl) {
+    if (db_table_exists($db, $legacy_tbl) && !db_column_exists($db, $legacy_tbl, 'policy_id')) {
+        $db->exec("DROP TABLE " . $legacy_tbl);
+    }
+}
+
 $db->exec("CREATE TABLE IF NOT EXISTS transmutation_rows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     policy_id INTEGER NOT NULL,
@@ -726,6 +739,36 @@ function seed_once($db) {
                 ->execute([$uid, 'ADM-001', 'School Administrator', 'Administration', 'admin@school.com']);
         } else {
             $db->prepare("UPDATE users SET is_admin=1 WHERE email=?")->execute(['admin@school.com']);
+        }
+    }
+
+    // ---- Demo teacher + students (idempotent per email; the demo class
+    // below enrolls them and fills their gradebook — without this, a fresh
+    // database gets a class with no members and no scores) ----
+    $pass = password_hash('password123', PASSWORD_DEFAULT);
+    $chk_email = $db->prepare("SELECT COUNT(*) FROM users WHERE email=?");
+
+    $chk_email->execute(['teacher@school.com']);
+    if (!$chk_email->fetchColumn()) {
+        $db->prepare("INSERT INTO users (role, email, password, is_admin) VALUES ('teacher', ?, ?, 0)")
+            ->execute(['teacher@school.com', $pass]);
+        $tuid = $db->lastInsertId();
+        $db->prepare("INSERT INTO teachers (user_id, employee_number, full_name, department, contact_email) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$tuid, 'TCH-001', 'Demo Teacher', 'Faculty', 'teacher@school.com']);
+    }
+    $demo_students = [
+        ['john.smith@school.com', 'STU-001', 'John Smith', 'G11-STEM-A26'],
+        ['maria.garcia@school.com', 'STU-002', 'Maria Garcia', 'G11-STEM-A26'],
+        ['alex.johnson@school.com', 'STU-003', 'Alex Johnson', 'G11-STEM-A26'],
+    ];
+    foreach ($demo_students as $ds) {
+        $chk_email->execute([$ds[0]]);
+        if (!$chk_email->fetchColumn()) {
+            $db->prepare("INSERT INTO users (role, email, password, is_admin) VALUES ('student', ?, ?, 0)")
+                ->execute([$ds[0], $pass]);
+            $suid = $db->lastInsertId();
+            $db->prepare("INSERT INTO students (user_id, student_number, full_name, section) VALUES (?, ?, ?, ?)")
+                ->execute([$suid, $ds[1], $ds[2], $ds[3]]);
         }
     }
 
