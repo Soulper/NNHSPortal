@@ -26,7 +26,11 @@ function class_policy($db, $class_id) {
     $policy = [
         'class' => $c,
         'id' => $c['policy_id'] ?? null,
-        'name' => $c['policy_name'] ?? null,
+        // No policy row (grading_policy_id NULL or dangling): fall back to
+        // the class's grading-system label so callers never render a null
+        // name (PHP 8.3 deprecates htmlspecialchars(null), and the badge
+        // would be empty).
+        'name' => $c['policy_name'] ?? ($c['grading_system'] === 'deped' ? 'DepEd' : 'Standard'),
         'description' => $c['policy_desc'] ?? null,
         'source_doc' => $c['source_doc'] ?? null,
         'transmutation_mode' => $c['transmutation_mode'] ?? 'none',
