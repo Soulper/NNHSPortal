@@ -13,13 +13,18 @@ function ok(label, cond, detail = '') {
 
 // Minimal cookie jar across requests.
 const jar = new Map();
-async function req(method, path, { form, json, headers = {}, redirect = 'manual' } = {}) {
+async function req(method, path, { form, json, rawBody, headers = {}, redirect = 'manual' } = {}) {
     const cookieHeader = [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
     const opts = { method, redirect, headers: { ...headers } };
     if (cookieHeader) opts.headers.Cookie = cookieHeader;
     if (json !== undefined) {
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(json);
+    } else if (rawBody !== undefined) {
+        // Pre-encoded body, for shapes URLSearchParams can't express (e.g.
+        // the same field name submitted twice, like a real browser can).
+        opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        opts.body = rawBody;
     } else if (form !== undefined) {
         opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         opts.body = new URLSearchParams(form).toString();
@@ -126,14 +131,26 @@ async function main() {
     const s = await login('student@school.com', 'password123');
     ok('student login redirects to dashboard', s.status === 302 && /dashboard\.php$/.test(s.location), `got ${s.status} ${s.location}`);
     const sdash = await req('GET', '/dashboard.php');
-    ok('student dashboard renders', sdash.status === 200 && (await sdash.text()).includes('Alex Johnson'));
+    const sdashHtml = await sdash.text();
+    ok('student dashboard renders', sdash.status === 200 && sdashHtml.includes('Alex Johnson'));
     const card = await req('GET', '/dashboard.php?page=grades');
     const cardHtml = await card.text();
     ok('report card renders', card.status === 200 && cardHtml.includes('General Average'));
     ok('released term visible on card', cardHtml.includes('Term 1'));
     const sprof = await req('GET', '/dashboard.php?page=profile');
     ok('student profile renders', sprof.status === 200 && (await sprof.text()).includes('Update Profile'));
-    await req('POST', '/logout.php', { form: { csrf_token: csrfMeta } });
+
+    // Regression: browsers used to POST csrf_token twice (the navbar renders
+    // one for no-JS support and script.js injected a second), which the
+    // urlencoded parser hands over as an array. PHP's $_POST keeps the last
+    // duplicate; the port must too, or CSRF "fails" and logout silently
+    // keeps the session - the user could never log out.
+    const sToken = (sdashHtml.match(/name="csrf-token" content="([a-f0-9]{64})"/) || [])[1];
+    ok('student dashboard csrf meta present', !!sToken);
+    const dupLogout = await req('POST', '/logout.php', { rawBody: `csrf_token=${sToken}&csrf_token=${sToken}` });
+    ok('logout survives duplicate csrf fields', dupLogout.status === 302 && /login\.php$/.test(dupLogout.headers.get('location') || ''));
+    const dupAfter = await req('GET', '/dashboard.php');
+    ok('session gone after duplicate-csrf logout', dupAfter.status === 302 && /login\.php$/.test(dupAfter.headers.get('location') || ''));
 
     console.log('== admin flow ==');
     const a = await login('admin@school.com', 'password123');

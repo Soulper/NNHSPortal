@@ -105,7 +105,15 @@ function hash_equals(a, b) {
 // failure behaviour can differ: inline error on auth pages, flash+redirect on
 // dashboard actions, 419 JSON on the autosave endpoint).
 function csrf_ok(req) {
-    const sent = (req.body && req.body.csrf_token) || req.get('X-CSRF-Token') || '';
+    const raw = req.body ? req.body.csrf_token : undefined;
+    // A form can carry the field twice - a server-rendered input for no-JS
+    // support plus the script.js injection - and the urlencoded parser then
+    // hands it over as an array. PHP's $_POST keeps the LAST duplicate
+    // field, so mirror that instead of comparing the stringified array
+    // (which is exactly what made every logout POST fail CSRF and keep the
+    // session alive on the Workers deployment).
+    const fromBody = Array.isArray(raw) ? raw[raw.length - 1] : raw;
+    const sent = fromBody || req.get('X-CSRF-Token') || '';
     return hash_equals(csrf_token(req), sent);
 }
 

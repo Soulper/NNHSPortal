@@ -2,6 +2,11 @@ document.addEventListener('DOMContentLoaded', function() {
     var token = document.querySelector('meta[name="csrf-token"]');
     if (token) {
         document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function(f) {
+            // Forms that render their token server-side (logout must work
+            // without JS) already carry one. A second field would submit
+            // duplicate csrf_token values - tolerated by PHP's $_POST only
+            // because the last duplicate wins.
+            if (f.querySelector('input[name="csrf_token"]')) return;
             var inp = document.createElement('input');
             inp.type = 'hidden';
             inp.name = 'csrf_token';
