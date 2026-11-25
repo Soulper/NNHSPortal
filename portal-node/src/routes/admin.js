@@ -340,51 +340,6 @@ async function admin_users(req, res, ctx) {
     res.render('admin/users', page_ctx(ctx, 'users', { role_filter, list }));
 }
 
-// ---- admin_advisers() ----
-// Adviser designations: which class is the advisory class per section for a
-// school year. Its teacher is the section adviser and the only one who can
-// generate SF9 report cards for those students.
-async function admin_advisers(req, res, ctx) {
-    const year_id = Number(await setting(client, 'active_academic_year_id', '')) || 0;
-
-    let year_label = '';
-    if (year_id) {
-        const yl = await get('SELECT label FROM academic_years WHERE id=?', [year_id]);
-        year_label = yl ? String(yl.label ?? '') : '';
-    }
-
-    const years = await all('SELECT id, label FROM academic_years ORDER BY start_date DESC');
-    if (!years.length) {
-        return res.render('admin/advisers', page_ctx(ctx, 'advisers', { years, year_id, year_label, sections: [] }));
-    }
-
-    const rows = await all(
-        `SELECT c.id, c.subject, c.section, c.is_advisory, t.full_name AS teacher,
-                (SELECT COUNT(*) FROM class_members cm WHERE cm.class_id=c.id) AS students
-         FROM classes c LEFT JOIN teachers t ON t.user_id=c.teacher_id
-         WHERE c.academic_year_id=? AND c.status='active'
-         ORDER BY c.section, c.subject`, [year_id]);
-    if (!rows.length) {
-        return res.render('admin/advisers', page_ctx(ctx, 'advisers', { years, year_id, year_label, sections: [] }));
-    }
-
-    // Group by section so the advisory choice reads clearly. Map keeps the
-    // ORDER BY section order, like PHP's insertion-ordered array.
-    const by_section = new Map();
-    for (const r of rows) {
-        const sec = r.section == null ? '' : String(r.section);
-        if (!by_section.has(sec)) by_section.set(sec, []);
-        by_section.get(sec).push(r);
-    }
-    const sections = [...by_section.entries()].map(([section, cls]) => ({
-        section,
-        classes: cls,
-        has_adviser: cls.some((r) => !!Number(r.is_advisory)),
-    }));
-
-    res.render('admin/advisers', page_ctx(ctx, 'advisers', { years, year_id, year_label, sections }));
-}
-
 // ---- admin_years() ----
 async function admin_years(req, res, ctx) {
     const years = (await all('SELECT * FROM academic_years ORDER BY start_date DESC')).map((y) => ({ ...y }));
@@ -488,7 +443,6 @@ router.get('/admin.php', require_admin, async (req, res, next) => {
 
         switch (page) {
             case 'users': return await admin_users(req, res, ctx);
-            case 'advisers': return await admin_advisers(req, res, ctx);
             case 'years': return await admin_years(req, res, ctx);
             case 'policies': return await admin_policies(req, res, ctx);
             case 'calendar': return await admin_calendar(req, res, ctx);

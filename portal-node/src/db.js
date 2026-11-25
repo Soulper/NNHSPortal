@@ -365,9 +365,6 @@ const EXTRA_COLUMNS = [
     ['classes', 'academic_year_id', 'INTEGER'],
     ['classes', 'current_term_id', 'INTEGER'],
     ['classes', 'cluster', 'TEXT'],
-    // Advisory flag: exactly the class whose teacher is the SECTION adviser for
-    // that school year. Only advisory classes may generate SF9 report cards.
-    ['classes', 'is_advisory', 'INTEGER NOT NULL DEFAULT 0'],
     // Assignment submission policy (per-assignment file rules)
     ['assignments', 'requires_file', 'INTEGER NOT NULL DEFAULT 1'],
     ['assignments', 'allowed_exts', 'TEXT'],

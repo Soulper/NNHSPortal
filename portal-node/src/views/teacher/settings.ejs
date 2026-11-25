@@ -35,13 +35,6 @@
                         <div class="mb-2"><label class="small fw-semibold">Section</label><input type="text" name="section" class="form-control" value="<%= cls.section %>"></div>
                         <div class="mb-2"><label class="small fw-semibold">School Year</label><input type="text" name="school_year" class="form-control" value="<%= cls.school_year %>"></div>
                         <div class="mb-2"><label class="small fw-semibold">Description</label><textarea name="description" class="form-control" rows="2"><%= cls.description ?? '' %></textarea></div>
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" name="is_advisory" id="isAdvisory" value="1" <%= Number(cls.is_advisory || 0) !== 0 ? 'checked' : '' %>>
-                            <label class="form-check-label small" for="isAdvisory">
-                                This is my <strong>advisory class</strong>
-                            </label>
-                            <small class="text-muted d-block">The advisory class's teacher is the section adviser - the only one who can generate the students' SF9 report cards. The admin panel can also reassign this.</small>
-                        </div>
                         <button type="submit" class="btn btn-sm btn-brand">Update</button>
                     </form>
                 </div>

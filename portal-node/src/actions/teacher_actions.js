@@ -258,11 +258,10 @@ async function handle(req, res, action) {
     // UPDATE CLASS
     if (action === 'update_class') {
         const class_id = Number(req.body.class_id || 0);
-        const is_advisory = req.body.is_advisory !== undefined ? 1 : 0;
         await run(
-            'UPDATE classes SET subject=?, section=?, school_year=?, description=?, is_advisory=? WHERE id=? AND teacher_id=?',
-            [req.body.subject, req.body.section, req.body.school_year, req.body.description, is_advisory, class_id, uid]);
-        await audit(client, req, 'update_class', 'classes', class_id, null, is_advisory ? 'advisory' : 'subject');
+            'UPDATE classes SET subject=?, section=?, school_year=?, description=? WHERE id=? AND teacher_id=?',
+            [req.body.subject, req.body.section, req.body.school_year, req.body.description, class_id, uid]);
+        await audit(client, req, 'update_class', 'classes', class_id, null, 'subject');
         flash(req, 'Class updated.');
         res.redirect('/dashboard.php?page=settings&id=' + class_id);
         return true;
@@ -605,58 +604,6 @@ async function handle(req, res, action) {
         await audit(client, req, 'remove_student', 'classes', class_id, null, 'student ' + student_id);
         flash(req, 'Student removed.');
         res.redirect(`/dashboard.php?page=class&id=${class_id}`);
-        return true;
-    }
-
-    // EXPORT SF9 (adviser only) - fills the report card template with the
-    // student's released Term Grades and streams it, print-ready. Subject
-    // teachers cannot export SF9s: the class must be the teacher's
-    // designated advisory class.
-    if (action === 'export_sf9') {
-        const class_id = Number(req.body.class_id || 0);
-        const student_id = Number(req.body.student_id || 0);
-        if (!(await teacher_owns_class(client, uid, class_id))) {
-            flash(req, 'Unauthorized.', 'danger');
-            res.redirect('/dashboard.php');
-            return true;
-        }
-        const cls = await get('SELECT is_advisory, academic_year_id FROM classes WHERE id=?', [class_id]);
-        if (!cls || Number(cls.is_advisory || 0) === 0) {
-            flash(req, 'Only your advisory class can generate SF9 report cards.', 'danger');
-            res.redirect(`/dashboard.php?page=grades&id=${class_id}`);
-            return true;
-        }
-        const member = await get('SELECT COUNT(*) AS n FROM class_members WHERE class_id=? AND student_id=?', [class_id, student_id]);
-        if (!student_id || Number(member.n) === 0) {
-            flash(req, 'That student is not in this class.', 'danger');
-            res.redirect(`/dashboard.php?page=sf9&id=${class_id}`);
-            return true;
-        }
-        if (!cls.academic_year_id) {
-            flash(req, 'This class has no school year yet.', 'danger');
-            res.redirect(`/dashboard.php?page=sf9&id=${class_id}`);
-            return true;
-        }
-
-        const row = await get(
-            'SELECT ay.label, t.full_name AS adviser FROM academic_years ay, teachers t WHERE ay.id=? AND t.user_id=?',
-            [Number(cls.academic_year_id), uid]);
-
-        let workbook;
-        try {
-            // Lazy require: sf9_export.js is delivered separately and the
-            // streaming helpers must not be loaded at module init time.
-            const sf9 = require('../sf9_export');
-            workbook = await sf9.sf9_build(client, student_id, Number(cls.academic_year_id), row ? row.adviser : null);
-        } catch (e) {
-            flash(req, (e && e.message) ? e.message : 'Could not generate the SF9.', 'danger');
-            res.redirect(`/dashboard.php?page=sf9&id=${class_id}`);
-            return true;
-        }
-        await audit(client, req, 'export_sf9', 'students', student_id, null, 'year ' + cls.academic_year_id);
-        const sn = await get('SELECT full_name FROM students WHERE user_id=?', [student_id]);
-        const sf9 = require('../sf9_export');
-        await sf9.sf9_stream(workbook, res, sf9.sf9_filename(sn ? sn.full_name : '', String(row ? row.label : '')));
         return true;
     }
 

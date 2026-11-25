@@ -23,9 +23,6 @@
             <p class="page-subtitle">Enter the final Term Grade for each student.</p>
         </div>
         <a href="dashboard.php?page=class&id=<%= class_id %>" class="btn btn-sm btn-outline-secondary">Back to class</a>
-        <% if (Number(cls.is_advisory || 0) !== 0) { %>
-            <a href="dashboard.php?page=sf9&id=<%= class_id %>" class="btn btn-sm btn-accent">SF9 Report Cards</a>
-        <% } %>
     </div>
 
     <% // Term switcher: the DO 009 three-term year as a dropdown. A GET

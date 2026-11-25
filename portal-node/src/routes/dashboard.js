@@ -95,9 +95,6 @@ router.get('/dashboard.php', require_login, async (req, res, next) => {
                 case 'grades': return class_id
                     ? await teacher_pages.teacher_grades(req, res, class_id)
                     : no_id(res, 'No class ID provided.');
-                case 'sf9': return class_id
-                    ? await teacher_pages.teacher_sf9(req, res, class_id)
-                    : no_id(res, 'No class ID provided.');
                 case 'attendance': return class_id
                     ? await teacher_pages.teacher_attendance(req, res, class_id)
                     : no_id(res, 'No class ID provided.');

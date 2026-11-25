@@ -188,34 +188,6 @@ async function teacher_grades(req, res, class_id) {
 }
 
 // ---------------------------------------------------------------
-// SF9 REPORT CARDS (teacher_sf9)
-// ---------------------------------------------------------------
-async function teacher_sf9(req, res, class_id) {
-    const uid = current_user_id(req);
-    const cls = await get(
-        'SELECT c.*, ay.label AS year_label FROM classes c LEFT JOIN academic_years ay ON ay.id=c.academic_year_id WHERE c.id=? AND c.teacher_id=?',
-        [class_id, uid]);
-    const data = { page: 'sf9', unread: 0, ...chip(req), cls: null, error: '' };
-    if (!cls) return res.render('teacher/sf9', data);
-    data.cls = cls;
-    data.class_id = Number(class_id);
-
-    if (Number(cls.is_advisory || 0) === 0) {
-        data.error = 'advisory';
-        return res.render('teacher/sf9', data);
-    }
-    if (!cls.academic_year_id) {
-        data.error = 'no_year';
-        return res.render('teacher/sf9', data);
-    }
-
-    data.roster = await all(
-        'SELECT u.id, s.full_name, s.student_number FROM users u JOIN students s ON u.id=s.user_id JOIN class_members cm ON cm.student_id=u.id WHERE cm.class_id=? ORDER BY s.full_name',
-        [class_id]);
-    return res.render('teacher/sf9', data);
-}
-
-// ---------------------------------------------------------------
 // ATTENDANCE (teacher_attendance)
 // ---------------------------------------------------------------
 async function teacher_attendance(req, res, class_id) {
@@ -288,7 +260,6 @@ module.exports = {
     teacher_create_class,
     teacher_class_detail,
     teacher_grades,
-    teacher_sf9,
     teacher_attendance,
     teacher_settings,
     teacher_submissions,

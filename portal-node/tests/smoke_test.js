@@ -111,12 +111,6 @@ async function main() {
     const flashPage = noCsrf.status === 302 ? await (await req('GET', '/dashboard.php')).text() : '';
     ok('CSRF failure does not save', noCsrf.status === 302 && flashPage.includes('Your session expired'), `status ${noCsrf.status}`);
 
-    // SF9 gate: non-advisory class refused.
-    const sf9 = await req('POST', '/dashboard.php', {
-        form: { action: 'export_sf9', class_id: classId, student_id: firstSid, csrf_token: csrfMeta },
-    });
-    ok('SF9 advisory gate', sf9.status === 302, `status ${sf9.status}`);
-
     // Profile + change password page renders.
     const prof = await req('GET', '/dashboard.php?page=profile');
     ok('profile renders', prof.status === 200 && (await prof.text()).includes('Change Password'));
