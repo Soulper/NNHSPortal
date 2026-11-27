@@ -9,6 +9,28 @@ require_admin();
 
 $page = isset($_GET['page']) ? $_GET['page'] : 'overview';
 
+// Handle template downloads (GET)
+if (isset($_GET['download'])) {
+    require_once __DIR__ . '/includes/enrollment_helpers.php';
+    $type = $_GET['download'];
+    if ($type === 'student_template') {
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="student_enrollment_template.csv"');
+        echo build_student_csv_template();
+        exit;
+    } elseif ($type === 'teacher_template') {
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="teacher_template.csv"');
+        echo build_teacher_csv_template();
+        exit;
+    } elseif ($type === 'class_template') {
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="class_builder_template.csv"');
+        echo build_class_csv_template();
+        exit;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     handle_admin_post($db);
 }
@@ -45,37 +67,18 @@ $__chip_ini = strtoupper(substr($__chip_parts[0] ?? 'A', 0, 1) . (isset($__chip_
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav ms-auto">
-                <li class="nav-item"><a class="nav-link <?= $page=='overview'?'active':'' ?>" href="admin.php">Overview</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='users'?'active':'' ?>" href="admin.php?page=users">Users</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='years'?'active':'' ?>" href="admin.php?page=years">Years &amp; Terms</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='policies'?'active':'' ?>" href="admin.php?page=policies">Policies</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='calendar'?'active':'' ?>" href="admin.php?page=calendar">Calendar</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='announcements'?'active':'' ?>" href="admin.php?page=announcements">Announcements</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='audit'?'active':'' ?>" href="admin.php?page=audit">Audit Log</a></li>
-                <li class="nav-item"><a class="nav-link <?= $page=='settings'?'active':'' ?>" href="admin.php?page=settings">Settings</a></li>
+                        <ul class="navbar-nav ms-auto">
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'overview'."'".'?'active':'' ?>" href="admin.php">Overview</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'users'."'".'?'active':'' ?>" href="admin.php?page=users">Users</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'enrollments'."'".'?'active':'' ?>" href="admin.php?page=enrollments">Enrollments</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'classes'."'".'?'active':'' ?>" href="admin.php?page=classes">Classes</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'years'."'".'?'active':'' ?>" href="admin.php?page=years">Years & Terms</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'policies'."'".'?'active':'' ?>" href="admin.php?page=policies">Policies</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'calendar'."'".'?'active':'' ?>" href="admin.php?page=calendar">Calendar</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'announcements'."'".'?'active':'' ?>" href="admin.php?page=announcements">Announcements</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'audit'."'".'?'active':'' ?>" href="admin.php?page=audit">Audit Log</a></li>
+                <li class="nav-item"><a class="nav-link <?= $page=='."'".'settings'."'".'?'active':'' ?>" href="admin.php?page=settings">Settings</a></li>
                 <li class="nav-item"><a class="nav-link text-white-50" href="dashboard.php">Back to Portal</a></li>
-                <li class="nav-item d-none d-lg-flex align-items-center ms-lg-2">
-                    <span class="nav-user-chip">
-                        <span class="user-avatar"><?= htmlspecialchars($__chip_ini) ?></span>
-                        <span class="user-meta">
-                            <strong><?= htmlspecialchars($__chip_name) ?></strong>
-                            <small><?= htmlspecialchars($__chip_role) ?></small>
-                        </span>
-                    </span>
-                </li>
-                <li class="nav-item ms-lg-1">
-                    <form method="POST" action="logout.php" class="d-inline">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                        <button type="submit" class="btn btn-sm btn-outline-light">Logout</button>
-                    </form>
-                </li>
-                <li class="nav-item ms-lg-1">
-                    <button type="button" class="theme-toggle-btn" data-theme-toggle aria-label="Switch to dark mode">
-                        <svg data-icon="light" class="d-none" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-                        <svg data-icon="dark" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                    </button>
-                </li>
             </ul>
         </div>
     </div>
@@ -90,6 +93,8 @@ $__chip_ini = strtoupper(substr($__chip_parts[0] ?? 'A', 0, 1) . (isset($__chip_
 
     switch ($page) {
         case 'users': admin_users(); break;
+        case 'enrollments': admin_enrollments(); break;
+        case 'classes': admin_classes(); break;
         case 'years': admin_years(); break;
         case 'policies': admin_policies(); break;
         case 'calendar': admin_calendar(); break;
@@ -110,3 +115,9 @@ $__chip_ini = strtoupper(substr($__chip_parts[0] ?? 'A', 0, 1) . (isset($__chip_
 <script src="theme.js"></script>
 </body>
 </html>
+
+
+
+
+
+

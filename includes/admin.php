@@ -11,6 +11,30 @@ function handle_admin_post($db) {
         exit;
     }
 
+    // ---- TEMPLATE DOWNLOADS (GET but handled here for simplicity) ----
+    if ($action === 'download_template') {
+        require_once __DIR__ . '/enrollment_helpers.php';
+        $type = $_GET['type'] ?? '';
+        if ($type === 'student') {
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="student_enrollment_template.csv"');
+            echo build_student_csv_template();
+            exit;
+        } elseif ($type === 'teacher') {
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="teacher_template.csv"');
+            echo build_teacher_csv_template();
+            exit;
+        } elseif ($type === 'class') {
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="class_builder_template.csv"');
+            echo build_class_csv_template();
+            exit;
+        }
+        header('Location: admin.php');
+        exit;
+    }
+
     // ---- USERS ----
     if ($action == 'user_toggle_admin') {
         $uid = (int)($_POST['user_id'] ?? 0);
@@ -236,6 +260,331 @@ function handle_admin_post($db) {
         exit;
     }
 
+    // ---- CREATE TEACHER (single) ----
+    if ($action == 'user_create_teacher') {
+        $full_name = trim($_POST['full_name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $employee_number = trim($_POST['employee_number'] ?? '');
+        $department = trim($_POST['department'] ?? '');
+        $password = trim($_POST['password'] ?? '');
+
+        $errors = [];
+        if (!$full_name) $errors[] = 'Full name required';
+        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Valid email required';
+        if (!$employee_number) $errors[] = 'Employee number required';
+        if ((int)$db->query("SELECT COUNT(*) FROM users WHERE email=" . $db->quote($email))->fetchColumn() > 0) $errors[] = 'Email already registered';
+        if ((int)$db->query("SELECT COUNT(*) FROM teachers WHERE employee_number=" . $db->quote($employee_number))->fetchColumn() > 0) $errors[] = 'Employee number already exists';
+        if ($password && strlen($password) < 8) $errors[] = 'Password must be at least 8 characters';
+
+        if ($errors) {
+            flash(implode('; ', $errors), 'danger');
+        } else {
+            require_once __DIR__ . '/enrollment_helpers.php';
+            $result = create_teacher_account($db, $employee_number, $full_name, $email, $department, $password);
+            audit($db, 'create_teacher', 'users', $result['user_id'], null, $full_name);
+            $pwd_display = $password ?: $result['password'];
+            flash("Teacher created: $email / Password: <code>$pwd_display</code> (save this — shown once)", 'success');
+        }
+        header('Location: admin.php?page=users');
+        exit;
+    }
+
+    // ---- BULK CREATE STUDENTS (CSV) ----
+    if ($action == 'user_bulk_create_students') {
+        require_once __DIR__ . '/enrollment_helpers.php';
+        $parsed = parse_enrollment_csv($_FILES['csv_file'] ?? null);
+        if ($parsed['error']) { flash($parsed['error'], 'danger'); header('Location: admin.php?page=users'); exit; }
+
+        $active_year_id = get_active_year_id($db);
+        $seen_numbers = []; $seen_emails = [];
+        $valid_rows = []; $all_errors = [];
+
+        foreach ($parsed['rows'] as $i => $row) {
+            $errs = validate_student_row($db, $row, $active_year_id, $seen_numbers, $seen_emails);
+            if ($errs) {
+                $all_errors[] = 'Line ' . ($i + 1) . ': ' . implode(', ', $errs);
+            } else {
+                $seen_numbers[$row['student_number']] = true;
+                if ($row['email']) $seen_emails[$row['email']] = true;
+                $valid_rows[] = $row;
+            }
+        }
+
+        if ($all_errors && !$valid_rows) {
+            flash('All rows have errors: ' . implode('; ', array_slice($all_errors, 0, 5)), 'danger');
+            header('Location: admin.php?page=users');
+            exit;
+        }
+
+        $created = 0; $enrolled_total = 0; $passwords = [];
+        foreach ($valid_rows as $row) {
+            $result = create_student_account($db, $row['student_number'], $row['full_name'], $row['email'] ?: null, $row['section'], $row['password'] ?? '');
+            $created++;
+            if ($active_year_id) $enrolled_total += enroll_student_in_section($db, $result['user_id'], $row['section'], $active_year_id);
+            $passwords[] = $row['email'] . ' / ' . $result['password'];
+        }
+
+        audit($db, 'bulk_create_students', 'users', null, null, "$created students");
+        $msg = "Created $created students, enrolled in $enrolled_total class seats.";
+        if ($passwords) $msg .= ' Passwords (shown once):<br><code>' . implode('</code><br><code>', array_slice($passwords, 0, 20)) . ($created > 20 ? '</code><br><code>... and ' . ($created - 20) . ' more' : '') . '</code>';
+        flash($msg, 'success');
+        header('Location: admin.php?page=users');
+        exit;
+    }
+
+    // ---- BULK CREATE TEACHERS (CSV) ----
+    if ($action == 'user_bulk_create_teachers') {
+        require_once __DIR__ . '/enrollment_helpers.php';
+        $parsed = parse_enrollment_csv($_FILES['csv_file'] ?? null);
+        if ($parsed['error']) { flash($parsed['error'], 'danger'); header('Location: admin.php?page=users'); exit; }
+
+        $seen_numbers = []; $seen_emails = [];
+        $valid_rows = []; $all_errors = [];
+
+        foreach ($parsed['rows'] as $i => $row) {
+            $errs = validate_teacher_row($db, $row, $seen_numbers, $seen_emails);
+            if ($errs) {
+                $all_errors[] = 'Line ' . ($i + 1) . ': ' . implode(', ', $errs);
+            } else {
+                $seen_numbers[$row['employee_number']] = true;
+                $seen_emails[$row['email']] = true;
+                $valid_rows[] = $row;
+            }
+        }
+
+        if ($all_errors && !$valid_rows) {
+            flash('All rows have errors: ' . implode('; ', array_slice($all_errors, 0, 5)), 'danger');
+            header('Location: admin.php?page=users');
+            exit;
+        }
+
+        $created = 0; $passwords = [];
+        foreach ($valid_rows as $row) {
+            $result = create_teacher_account($db, $row['employee_number'], $row['full_name'], $row['email'], $row['department'] ?? '', $row['password'] ?? '');
+            $created++;
+            $passwords[] = $row['email'] . ' / ' . $result['password'];
+        }
+
+        audit($db, 'bulk_create_teachers', 'users', null, null, "$created teachers");
+        $msg = "Created $created teachers.";
+        if ($passwords) $msg .= ' Passwords (shown once):<br><code>' . implode('</code><br><code>', array_slice($passwords, 0, 20)) . ($created > 20 ? '</code><br><code>... and ' . ($created - 20) . ' more' : '') . '</code>';
+        flash($msg, 'success');
+        header('Location: admin.php?page=users');
+        exit;
+    }
+
+    // ---- ENROLLMENTS: CSV UPLOAD ----
+    if ($action == 'enroll_csv') {
+        require_once __DIR__ . '/enrollment_helpers.php';
+        $parsed = parse_enrollment_csv($_FILES['csv_file'] ?? null);
+        if ($parsed['error']) { flash($parsed['error'], 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        $active_year_id = get_active_year_id($db);
+        if (!$active_year_id) { flash('No active academic year set.', 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        $seen_numbers = []; $seen_emails = [];
+        $valid_rows = []; $all_errors = [];
+
+        foreach ($parsed['rows'] as $i => $row) {
+            $errs = validate_student_row($db, $row, $active_year_id, $seen_numbers, $seen_emails);
+            if ($errs) {
+                $all_errors[] = 'Line ' . ($i + 1) . ': ' . implode(', ', $errs);
+            } else {
+                $seen_numbers[$row['student_number']] = true;
+                if ($row['email']) $seen_emails[$row['email']] = true;
+                $valid_rows[] = $row;
+            }
+        }
+
+        if ($all_errors && !$valid_rows) {
+            flash('All rows have errors: ' . implode('; ', array_slice($all_errors, 0, 5)), 'danger');
+            header('Location: admin.php?page=enrollments');
+            exit;
+        }
+
+        $created = 0; $enrolled_total = 0; $passwords = [];
+        foreach ($valid_rows as $row) {
+            $result = create_student_account($db, $row['student_number'], $row['full_name'], $row['email'] ?: null, $row['section'], $row['password'] ?? '');
+            $created++;
+            $enrolled_total += enroll_student_in_section($db, $result['user_id'], $row['section'], $active_year_id);
+            if ($result['status'] === 'active') $passwords[] = $row['email'] . ' / ' . $result['password'];
+        }
+
+        audit($db, 'enroll_csv', 'class_members', null, null, "$created students, $enrolled_total enrollments");
+        $msg = "Created $created students, enrolled in $enrolled_total class seats.";
+        if ($passwords) $msg .= ' Passwords (shown once):<br><code>' . implode('</code><br><code>', array_slice($passwords, 0, 20)) . ($created > 20 ? '</code><br><code>... and ' . ($created - 20) . ' more' : '') . '</code>';
+        flash($msg, 'success');
+        header('Location: admin.php?page=enrollments');
+        exit;
+    }
+
+    // ---- ENROLLMENTS: MANUAL ENROLL ----
+    if ($action == 'enroll_manual') {
+        $class_id = (int)($_POST['class_id'] ?? 0);
+        $student_id = (int)($_POST['student_id'] ?? 0);
+        if (!$class_id || !$student_id) { flash('Class and student required.', 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        $cls = $db->prepare("SELECT * FROM classes WHERE id=? AND status='active'");
+        $cls->execute([$class_id]);
+        if (!$cls->fetch()) { flash('Class not found.', 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        $stu = $db->prepare("SELECT u.id FROM users u JOIN students s ON u.id=s.user_id WHERE u.id=? AND u.status='active'");
+        $stu->execute([$student_id]);
+        if (!$stu->fetch()) { flash('Student not found.', 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        $existing = $db->prepare("SELECT COUNT(*) FROM class_members WHERE class_id=? AND student_id=?");
+        $existing->execute([$class_id, $student_id]);
+        if ($existing->fetchColumn() > 0) {
+            flash('Student already enrolled in this class.', 'warning');
+        } else {
+            $db->prepare("INSERT INTO class_members (class_id, student_id) VALUES (?, ?)")->execute([$class_id, $student_id]);
+            audit($db, 'enroll_manual', 'class_members', null, null, "class $class_id, student $student_id");
+            flash('Student enrolled.');
+        }
+        header('Location: admin.php?page=enrollments');
+        exit;
+    }
+
+    // ---- ENROLLMENTS: ENROLL MISSING FOR SECTION ----
+    if ($action == 'enroll_section_missing') {
+        $section = trim($_POST['section'] ?? '');
+        if (!$section) { flash('Section required.', 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        require_once __DIR__ . '/enrollment_helpers.php';
+        $active_year_id = get_active_year_id($db);
+        if (!$active_year_id) { flash('No active academic year set.', 'danger'); header('Location: admin.php?page=enrollments'); exit; }
+
+        $missing = get_unenrolled_students_in_section($db, $section, $active_year_id);
+        $enrolled = 0;
+        foreach ($missing as $s) {
+            $enrolled += enroll_student_in_section($db, $s['user_id'], $section, $active_year_id);
+        }
+        audit($db, 'enroll_section_missing', 'class_members', null, null, "section $section, $enrolled enrollments");
+        flash("Enrolled $enrolled missing students for section $section.");
+        header('Location: admin.php?page=enrollments');
+        exit;
+    }
+
+    // ---- CLASSES: CSV UPLOAD ----
+    if ($action == 'classes_csv') {
+        require_once __DIR__ . '/enrollment_helpers.php';
+        $parsed = parse_enrollment_csv($_FILES['csv_file'] ?? null);
+        if ($parsed['error']) { flash($parsed['error'], 'danger'); header('Location: admin.php?page=classes'); exit; }
+
+        $active_year_id = get_active_year_id($db);
+        if (!$active_year_id) { flash('No active academic year set.', 'danger'); header('Location: admin.php?page=classes'); exit; }
+
+        $created = 0; $enrolled_total = 0; $errors = [];
+
+        foreach ($parsed['rows'] as $i => $row) {
+            $subject = trim($row['subject'] ?? '');
+            $sections = array_map('trim', explode(',', $row['sections'] ?? ''));
+            $teacher_email = trim($row['teacher_email'] ?? '');
+            $policy_name = trim($row['policy_name'] ?? '');
+
+            if (!$subject || !$sections || !$teacher_email) {
+                $errors[] = 'Line ' . ($i + 1) . ': Missing required fields';
+                continue;
+            }
+
+            $teacher_id = find_teacher_id_by_email($db, $teacher_email);
+            if (!$teacher_id) { $errors[] = 'Line ' . ($i + 1) . ": Teacher '$teacher_email' not found"; continue; }
+
+            $policy_id = $policy_name ? find_policy_id($db, $policy_name) : null;
+            if ($policy_name && !$policy_id) { $errors[] = 'Line ' . ($i + 1) . ": Policy '$policy_name' not found"; continue; }
+
+            // Get first term for the year
+            $first_term = (int)$db->prepare("SELECT id FROM terms WHERE academic_year_id=? ORDER BY number LIMIT 1")->execute([$active_year_id]) ? (int)$db->query("SELECT id FROM terms WHERE academic_year_id=$active_year_id ORDER BY number LIMIT 1")->fetchColumn() : 0;
+
+            foreach ($sections as $section) {
+                if (!$section) continue;
+                $join_code = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+                $db->prepare("INSERT INTO classes (teacher_id, subject, section, school_year, join_code, grading_policy_id, academic_year_id, current_term_id, status) VALUES (?,?,?,?,?,?,?,?,'active')")
+                    ->execute([$teacher_id, $subject, $section, (string)$active_year_id, $join_code, $policy_id ?: null, $active_year_id, $first_term ?: null]);
+                $class_id = (int)$db->lastInsertId();
+                $created++;
+
+                // Auto-create categories from policy
+                if ($policy_id) {
+                    $comps = $db->prepare("SELECT * FROM grading_components WHERE policy_id=? ORDER BY sort_order");
+                    $comps->execute([$policy_id]);
+                    foreach ($comps->fetchAll(PDO::FETCH_ASSOC) as $comp) {
+                        $db->prepare("INSERT INTO grade_categories (class_id, name, weight, term_id) VALUES (?,?,?,?)")
+                            ->execute([$class_id, $comp['name'], $comp['weight'], $first_term]);
+                    }
+                }
+
+                // Auto-enroll all students in this section
+                $enrolled_total += enroll_student_in_section($db, null, $section, $active_year_id); // will enroll all students with this section
+            }
+        }
+
+        audit($db, 'classes_csv', 'classes', null, null, "$created classes, $enrolled_total enrollments");
+        $msg = "Created $created classes, auto-enrolled $enrolled_total students.";
+        if ($errors) $msg .= ' Errors: ' . implode('; ', $errors);
+        flash($msg, $errors ? 'warning' : 'success');
+        header('Location: admin.php?page=classes');
+        exit;
+    }
+
+    // ---- CLASSES: BUILDER (grid) ----
+    if ($action == 'classes_builder') {
+        $rows = $_POST['builder_rows'] ?? [];
+        if (!$rows) { flash('No classes to create.', 'danger'); header('Location: admin.php?page=classes'); exit; }
+
+        $active_year_id = get_active_year_id($db);
+        if (!$active_year_id) { flash('No active academic year set.', 'danger'); header('Location: admin.php?page=classes'); exit; }
+
+        $first_term = (int)$db->query("SELECT id FROM terms WHERE academic_year_id=$active_year_id ORDER BY number LIMIT 1")->fetchColumn();
+
+        $created = 0; $enrolled_total = 0; $errors = [];
+
+        foreach ($rows as $i => $row) {
+            $subject = trim($row['subject'] ?? '');
+            $sections = array_map('trim', explode(',', $row['sections'] ?? ''));
+            $teacher_email = trim($row['teacher_email'] ?? '');
+            $policy_name = trim($row['policy_name'] ?? '');
+
+            if (!$subject || !$sections || !$teacher_email) {
+                $errors[] = "Row $i: Missing required fields";
+                continue;
+            }
+
+            $teacher_id = find_teacher_id_by_email($db, $teacher_email);
+            if (!$teacher_id) { $errors[] = "Row $i: Teacher '$teacher_email' not found"; continue; }
+
+            $policy_id = $policy_name ? find_policy_id($db, $policy_name) : null;
+            if ($policy_name && !$policy_id) { $errors[] = "Row $i: Policy '$policy_name' not found"; continue; }
+
+            foreach ($sections as $section) {
+                if (!$section) continue;
+                $join_code = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+                $db->prepare("INSERT INTO classes (teacher_id, subject, section, school_year, join_code, grading_policy_id, academic_year_id, current_term_id, status) VALUES (?,?,?,?,?,?,?,?,'active')")
+                    ->execute([$teacher_id, $subject, $section, (string)$active_year_id, $join_code, $policy_id ?: null, $active_year_id, $first_term ?: null]);
+                $class_id = (int)$db->lastInsertId();
+                $created++;
+
+                if ($policy_id) {
+                    $comps = $db->prepare("SELECT * FROM grading_components WHERE policy_id=? ORDER BY sort_order");
+                    $comps->execute([$policy_id]);
+                    foreach ($comps->fetchAll(PDO::FETCH_ASSOC) as $comp) {
+                        $db->prepare("INSERT INTO grade_categories (class_id, name, weight, term_id) VALUES (?,?,?,?)")
+                            ->execute([$class_id, $comp['name'], $comp['weight'], $first_term]);
+                    }
+                }
+
+                $enrolled_total += enroll_student_in_section($db, null, $section, $active_year_id);
+            }
+        }
+
+        audit($db, 'classes_builder', 'classes', null, null, "$created classes, $enrolled_total enrollments");
+        $msg = "Created $created classes, auto-enrolled $enrolled_total students.";
+        if ($errors) $msg .= ' Errors: ' . implode('; ', $errors);
+        flash($msg, $errors ? 'warning' : 'success');
+        header('Location: admin.php?page=classes');
+        exit;
+    }
+
     header('Location: admin.php');
     exit;
 }
@@ -303,16 +652,27 @@ function admin_users() {
     global $db;
     $role_filter = $_GET['role'] ?? 'all';
     ?>
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="page-title">User Management</h4>
-        <form method="GET" class="d-flex gap-1">
-            <input type="hidden" name="page" value="users">
-            <select name="role" class="form-select form-select-sm" onchange="this.form.submit()">
-                <option value="all" <?= $role_filter=='all'?'selected':'' ?>>All roles</option>
-                <option value="teacher" <?= $role_filter=='teacher'?'selected':'' ?>>Teachers</option>
-                <option value="student" <?= $role_filter=='student'?'selected':'' ?>>Students</option>
-            </select>
-        </form>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h4 class="page-title mb-0">User Management</h4>
+        <div class="d-flex gap-2 flex-wrap">
+            <form method="GET" class="d-flex gap-1">
+                <input type="hidden" name="page" value="users">
+                <select name="role" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="all" <?= $role_filter=='all'?'selected':'' ?>>All roles</option>
+                    <option value="teacher" <?= $role_filter=='teacher'?'selected':'' ?>>Teachers</option>
+                    <option value="student" <?= $role_filter=='student'?'selected':'' ?>>Students</option>
+                </select>
+            </form>
+            <button type="button" class="btn btn-sm btn-brand" data-bs-toggle="modal" data-bs-target="#createTeacherModal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create Teacher
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#bulkCreateStudentsModal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Bulk Students (CSV)
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#bulkCreateTeachersModal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Bulk Teachers (CSV)
+            </button>
+        </div>
     </div>
     <?php
     $where = $role_filter != 'all' ? "WHERE role='" . $db->quote($role_filter) . "'" : '';
@@ -348,6 +708,342 @@ function admin_users() {
             </tbody>
         </table>
     </div>
+
+    <!-- CREATE TEACHER MODAL -->
+    <div class="modal fade" id="createTeacherModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <form method="POST" class="modal-content">
+                <input type="hidden" name="action" value="user_create_teacher">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                <div class="modal-header"><h5 class="modal-title">Create Teacher</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-2"><label class="small fw-semibold">Full Name</label><input type="text" name="full_name" class="form-control" placeholder="Ana Reyes" required></div>
+                    <div class="mb-2"><label class="small fw-semibold">Email</label><input type="email" name="email" class="form-control" placeholder="ana.reyes@school.edu" required></div>
+                    <div class="mb-2"><label class="small fw-semibold">Employee Number</label><input type="text" name="employee_number" class="form-control" placeholder="TCH-001" required></div>
+                    <div class="mb-2"><label class="small fw-semibold">Department</label><input type="text" name="department" class="form-control" placeholder="Mathematics"></div>
+                    <div class="mb-2"><label class="small fw-semibold">Password (optional)</label><input type="text" name="password" class="form-control" placeholder="Leave blank to auto-generate"><div class="form-text">Auto-generates a secure 12-char password if left empty.</div></div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-sm btn-brand">Create Teacher</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- BULK CREATE STUDENTS MODAL -->
+    <div class="modal fade" id="bulkCreateStudentsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <form method="POST" enctype="multipart/form-data" class="modal-content">
+                <input type="hidden" name="action" value="user_bulk_create_students">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                <div class="modal-header"><h5 class="modal-title">Bulk Create Students (CSV)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">CSV columns: <code>student_number,full_name,email,section,password</code> (password optional = auto-generate)</p>
+                    <a href="admin.php?page=users&download=student_template" class="btn btn-sm btn-outline-secondary mb-3">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Download Template
+                    </a>
+                    <div class="mb-2"><label class="small fw-semibold">Upload CSV</label><input type="file" name="csv_file" accept=".csv" class="form-control" required></div>
+                    <div class="alert alert-info small">Creates student accounts AND auto-enrolls them in all classes of their section for the active academic year.</div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-sm btn-brand">Create Students</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- BULK CREATE TEACHERS MODAL -->
+    <div class="modal fade" id="bulkCreateTeachersModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <form method="POST" enctype="multipart/form-data" class="modal-content">
+                <input type="hidden" name="action" value="user_bulk_create_teachers">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                <div class="modal-header"><h5 class="modal-title">Bulk Create Teachers (CSV)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">CSV columns: <code>employee_number,full_name,email,department,password</code> (password optional = auto-generate)</p>
+                    <a href="admin.php?page=users&download=teacher_template" class="btn btn-sm btn-outline-secondary mb-3">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Download Template
+                    </a>
+                    <div class="mb-2"><label class="small fw-semibold">Upload CSV</label><input type="file" name="csv_file" accept=".csv" class="form-control" required></div>
+                    <div class="alert alert-info small">Creates teacher accounts with profiles. No auto-enrollment (teachers assign themselves to classes).</div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-sm btn-brand">Create Teachers</button></div>
+            </form>
+        </div>
+    </div>
+
+<?php }
+
+// ================================================================
+// ENROLLMENTS PAGE
+// ================================================================
+function admin_enrollments() {
+    global $db;
+    require_once __DIR__ . '/enrollment_helpers.php';
+
+    $active_year_id = get_active_year_id($db);
+    $active_year = $active_year_id ? $db->query("SELECT label FROM academic_years WHERE id=$active_year_id")->fetchColumn() : null;
+
+    // Section overview: all sections with students in active year
+    $sections = $db->query("
+        SELECT s.section,
+               COUNT(DISTINCT s.user_id) AS student_count,
+               (SELECT COUNT(*) FROM classes c WHERE c.section=s.section AND c.academic_year_id=$active_year_id AND c.status='active') AS class_count
+        FROM students s
+        JOIN users u ON u.id=s.user_id
+        WHERE u.status='active' AND s.section IS NOT NULL AND s.section != ''
+        GROUP BY s.section
+        ORDER BY s.section
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Classes for manual enroll dropdown
+    $classes = $active_year_id ? $db->prepare("SELECT c.id, c.subject, c.section FROM classes c WHERE c.academic_year_id=? AND c.status='active' ORDER BY c.section, c.subject") : null;
+    if ($classes) { $classes->execute([$active_year_id]); $classes = $classes->fetchAll(PDO::FETCH_ASSOC); } else { $classes = []; }
+
+    // Students not in a specific class (for manual enroll)
+    $all_students = $db->query("SELECT u.id, s.full_name, s.student_number, s.section FROM users u JOIN students s ON u.id=s.user_id WHERE u.role='student' AND u.status='active' ORDER BY s.full_name")->fetchAll(PDO::FETCH_ASSOC);
+    ?>
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Enrollments</h4>
+            <p class="page-subtitle">Manage student enrollment by section</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="admin.php?download=student_template" class="btn btn-sm btn-outline-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Download Template
+            </a>
+        </div>
+    </div>
+
+    <?php if (!$active_year_id) { ?>
+        <div class="alert alert-warning">No active academic year set. Go to <a href="admin.php?page=years">Years & Terms</a> to set one.</div>
+    <?php } else { ?>
+        <div class="row g-3">
+            <!-- LEFT: Section Overview + CSV Upload -->
+            <div class="col-lg-7">
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Upload Students (CSV) — Active Year: <?= htmlspecialchars($active_year) ?></span>
+                        <span class="badge bg-primary"><?= count($sections) ?> Sections</span>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" enctype="multipart/form-data" class="mb-3">
+                            <input type="hidden" name="action" value="enroll_csv">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                            <div class="row g-2 align-items-end">
+                                <div class="col"><label class="small fw-semibold">CSV File</label><input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" required></div>
+                                <div class="col-auto"><button type="submit" class="btn btn-sm btn-brand">Upload & Enroll</button></div>
+                            </div>
+                            <div class="form-text">Columns: <code>student_number,full_name,email,section,password</code> — creates accounts + auto-enrolls in ALL classes of that section for the active year.</div>
+                        </form>
+
+                        <hr>
+                        <h6 class="fw-semibold">Section Overview (Active Year: <?= htmlspecialchars($active_year) ?>)</h6>
+                        <?php if (!$sections) { ?>
+                            <div class="text-muted small p-3">No students with sections found.</div>
+                        <?php } else { ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead><tr><th>Section</th><th>Students</th><th>Classes</th><th class="text-end">Action</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($sections as $sec) { ?>
+                                        <tr>
+                                            <td><strong><?= htmlspecialchars($sec['section']) ?></strong></td>
+                                            <td><?= (int)$sec['student_count'] ?></td>
+                                            <td><?= (int)$sec['class_count'] ?></td>
+                                            <td class="text-end">
+                                                <form method="POST" class="d-inline" onsubmit="return confirm('Enroll all missing students in section <?= htmlspecialchars($sec['section'], ENT_QUOTES) ?>?')">
+                                                    <input type="hidden" name="action" value="enroll_section_missing">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                                                    <input type="hidden" name="section" value="<?= htmlspecialchars($sec['section']) ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-primary">Enroll Missing</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <?php } ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php } ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Manual Enroll -->
+            <div class="col-lg-5">
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header fw-semibold">Manual Enroll</div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="enroll_manual">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                            <div class="mb-2"><label class="small fw-semibold">Class</label>
+                                <select name="class_id" class="form-select form-select-sm" required>
+                                    <option value="">Select class...</option>
+                                    <?php foreach ($classes as $c) { echo '<option value="' . $c['id'] . '">' . htmlspecialchars($c['subject']) . ' — ' . htmlspecialchars($c['section']) . '</option>'; } ?>
+                                </select>
+                            </div>
+                            <div class="mb-2"><label class="small fw-semibold">Student</label>
+                                <select name="student_id" class="form-select form-select-sm" required>
+                                    <option value="">Select student...</option>
+                                    <?php foreach ($all_students as $s) { echo '<option value="' . $s['id'] . '">' . htmlspecialchars($s['full_name']) . ' (' . htmlspecialchars($s['student_number']) . ') — ' . htmlspecialchars($s['section']) . '</option>'; } ?>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-sm btn-brand w-100">Enroll Student</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Recent Enrollments (Audit) -->
+                <div class="card shadow-sm">
+                    <div class="card-header fw-semibold">Recent Enrollments</div>
+                    <div class="card-body p-0">
+                        <?php
+                        $recent = $db->query("SELECT al.*, u.email FROM audit_logs al LEFT JOIN users u ON u.id=al.user_id WHERE al.action IN ('enroll_manual','enroll_csv','enroll_section_missing','bulk_create_students') ORDER BY al.id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+                        if (!$recent) { echo '<p class="text-muted small p-3 mb-0">No recent enrollments.</p>'; } else { echo '<ul class="list-group list-group-flush">'; foreach ($recent as $r) { echo '<li class="list-group-item d-flex justify-content-between"><span><small>' . htmlspecialchars($r['action']) . '</small> <span class="text-muted">' . htmlspecialchars($r['email'] ?? 'system') . '</span></span><small class="text-muted">' . $r['created_at'] . '</small></li>'; } echo '</ul>'; }
+                        ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php } ?>
+<?php }
+
+// ================================================================
+// CLASSES PAGE (Bulk Create + Manage)
+// ================================================================
+function admin_classes() {
+    global $db;
+    require_once __DIR__ . '/enrollment_helpers.php';
+
+    $active_year_id = get_active_year_id($db);
+    $active_year = $active_year_id ? $db->query("SELECT label FROM academic_years WHERE id=$active_year_id")->fetchColumn() : null;
+
+    // Teachers for dropdown
+    $teachers = $db->query("SELECT t.user_id, t.full_name, t.department, u.email FROM teachers t JOIN users u ON u.id=t.user_id WHERE u.status='active' ORDER BY t.full_name")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Policies for dropdown
+    $policies = $db->query("SELECT id, name FROM grading_policies WHERE is_active=1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Existing classes for active year
+    $existing = $active_year_id ? $db->prepare("SELECT c.*, t.full_name AS teacher_name FROM classes c LEFT JOIN teachers t ON t.user_id=c.teacher_id WHERE c.academic_year_id=? AND c.status='active' ORDER BY c.section, c.subject") : null;
+    if ($existing) { $existing->execute([$active_year_id]); $existing = $existing->fetchAll(PDO::FETCH_ASSOC); } else { $existing = []; }
+
+    // Sections with student counts
+    $sections = $active_year_id ? $db->query("SELECT section, COUNT(DISTINCT s.user_id) AS student_count FROM students s JOIN users u ON u.id=s.user_id WHERE u.status='active' AND s.section IS NOT NULL AND s.section != '' GROUP BY section ORDER BY section")->fetchAll(PDO::FETCH_ASSOC) : [];
+    ?>
+    <div class="page-header">
+        <div>
+            <h4 class="page-title">Classes</h4>
+            <p class="page-subtitle">Bulk create classes and assign teachers</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="admin.php?download=class_template" class="btn btn-sm btn-outline-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Download Template
+            </a>
+        </div>
+    </div>
+
+    <?php if (!$active_year_id) { ?>
+        <div class="alert alert-warning">No active academic year set. Go to <a href="admin.php?page=years">Years & Terms</a> to set one.</div>
+    <?php } else { ?>
+        <!-- CLASS BUILDER GRID -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header fw-semibold">Class Builder — Active Year: <?= htmlspecialchars($active_year) ?></div>
+            <div class="card-body">
+                <form method="POST" id="classBuilderForm">
+                    <input type="hidden" name="action" value="classes_builder">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                    <input type="hidden" name="builder_rows" id="builderRowsInput">
+
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm table-bordered" id="builderTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th>Subject</th>
+                                    <th>Sections (comma-separated)</th>
+                                    <th>Teacher</th>
+                                    <th>Grading Policy</th>
+                                    <th style="width:50px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="builder-row">
+                                    <td class="text-center fw-bold">1</td>
+                                    <td><input type="text" name="subject[]" class="form-control form-control-sm" placeholder="e.g. General Mathematics" required></td>
+                                    <td><input type="text" name="sections[]" class="form-control form-control-sm" placeholder="G11-A,G11-B" required></td>
+                                    <td>
+                                        <select name="teacher_email[]" class="form-select form-select-sm" required>
+                                            <option value="">Select teacher...</option>
+                                            <?php foreach ($teachers as $t) { echo '<option value="' . htmlspecialchars($t['email']) . '">' . htmlspecialchars($t['full_name']) . ' (' . htmlspecialchars($t['department'] ?? '') . ')</option>'; } ?>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select name="policy_name[]" class="form-select form-select-sm">
+                                            <option value="">(Auto from policy)</option>
+                                            <?php foreach ($policies as $p) { echo '<option value="' . htmlspecialchars($p['name']) . '">' . htmlspecialchars($p['name']) . '</option>'; } ?>
+                                        </select>
+                                    </td>
+                                    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove-row" title="Remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" id="addBuilderRow" class="btn btn-sm btn-outline-primary">+ Add Row</button>
+                        <button type="submit" class="btn btn-sm btn-brand ms-auto">Create Classes</button>
+                    </div>
+                    <div class="form-text mt-2">Creates one class per section. Auto-creates grade categories from policy. Auto-enrolls all students in that section.</div>
+                </form>
+            </div>
+        </div>
+
+        <!-- CSV UPLOAD -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header fw-semibold">Bulk Upload (CSV)</div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="classes_csv">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                    <div class="row g-2 align-items-end">
+                        <div class="col"><label class="small fw-semibold">CSV File</label><input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" required></div>
+                        <div class="col-auto"><button type="submit" class="btn btn-sm btn-brand">Upload & Create</button></div>
+                    </div>
+                    <div class="form-text">Columns: <code>subject,sections,teacher_email,policy_name</code> — sections comma-separated (e.g. "G11-A,G11-B"). Policy name must match exactly.</div>
+                </form>
+            </div>
+        </div>
+
+        <!-- EXISTING CLASSES -->
+        <div class="card shadow-sm">
+            <div class="card-header fw-semibold">Existing Classes (Active Year: <?= htmlspecialchars($active_year) ?>)</div>
+            <div class="card-body p-0">
+                <?php if (!$existing) { ?>
+                    <p class="text-muted small p-3 mb-0">No classes yet.</p>
+                <?php } else { ?>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead><tr><th>Subject</th><th>Section</th><th>Teacher</th><th>Policy</th><th>Join Code</th><th>Students</th><th></th></tr></thead>
+                            <tbody>
+                            <?php foreach ($existing as $c) {
+                                $student_count = (int)$db->prepare("SELECT COUNT(*) FROM class_members WHERE class_id=?")->execute([$c['id']]) ? (int)$db->query("SELECT COUNT(*) FROM class_members WHERE class_id=" . $c['id'])->fetchColumn() : 0; ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($c['subject']) ?></td>
+                                    <td><?= htmlspecialchars($c['section']) ?></td>
+                                    <td><?= htmlspecialchars($c['teacher_name'] ?? '—') ?></td>
+                                    <td><?= htmlspecialchars($c['grading_policy_id'] ? $db->query("SELECT name FROM grading_policies WHERE id=" . $c['grading_policy_id'])->fetchColumn() : 'Standard') ?></td>
+                                    <td><code><?= htmlspecialchars($c['join_code'] ?? '-') ?></code></td>
+                                    <td><?= $student_count ?></td>
+                                    <td class="text-nowrap">
+                                        <a href="dashboard.php?page=settings&id=<?= $c['id'] ?>" class="btn btn-sm btn-outline-secondary" target="_blank">Settings</a>
+                                        <a href="dashboard.php?page=grades&id=<?= $c['id'] ?>" class="btn btn-sm btn-outline-primary" target="_blank">Grades</a>
+                                    </td>
+                                </tr>
+                            <?php } ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php } ?>
+            </div>
+        </div>
+    <?php } ?>
 <?php }
 
 function admin_years() {
