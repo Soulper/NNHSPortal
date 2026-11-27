@@ -18,6 +18,11 @@ const {
 } = require('../config');
 const { PASSING_MARK, TERM_GRADE_MIN, TERM_GRADE_MAX } = require('../grade-engine');
 const { save_upload } = require('../storage');
+const { parse_enrollment_csv, validate_student_row, validate_teacher_row,
+    create_student_account, create_teacher_account, enroll_student_in_section,
+    get_active_year_id, find_policy_id, find_teacher_id_by_email,
+    get_classes_for_section, get_unenrolled_students_in_section,
+    build_student_csv_template, build_teacher_csv_template, build_class_csv_template } = require('../enrollment_helpers');
 
 const router = express.Router();
 
@@ -302,6 +307,209 @@ async function handle_admin_post(req, res) {
         return res.redirect('/admin.php?page=settings');
     }
 
+    // ---- ENROLLMENTS: CSV UPLOAD ----
+    if (action === 'enroll_csv') {
+        const parsed = parse_enrollment_csv(req.files && req.files.csv_file);
+        if (parsed.error) { flash(req, parsed.error, 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const active_year_id = await get_active_year_id(client);
+        if (!active_year_id) { flash(req, 'No active academic year set.', 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const seen_numbers = {}; const seen_emails = {};
+        const valid_rows = []; const all_errors = [];
+
+        for (let i = 0; i < parsed.rows.length; i++) {
+            const row = parsed.rows[i];
+            const errs = await validate_student_row(client, row, active_year_id, seen_numbers, seen_emails);
+            if (errs.length) {
+                all_errors.push('Line ' + (i + 1) + ': ' + errs.join(', '));
+            } else {
+                seen_numbers[row.student_number] = true;
+                if (row.email) seen_emails[row.email] = true;
+                valid_rows.push(row);
+            }
+        }
+
+        if (all_errors.length && !valid_rows.length) {
+            flash(req, 'All rows have errors: ' + all_errors.slice(0, 5).join('; '), 'danger');
+            return res.redirect('/admin.php?page=enrollments');
+        }
+
+        let created = 0, enrolled_total = 0, passwords = [];
+        for (const row of valid_rows) {
+            const result = await create_student_account(client, row.student_number, row.full_name, row.email || null, row.section, row.password || '');
+            created++;
+            enrolled_total += await enroll_student_in_section(client, result.user_id, row.section, active_year_id);
+            if (result.status === 'active') passwords.push(row.email + ' / ' + result.password);
+        }
+
+        await audit(client, req, 'enroll_csv', 'class_members', null, null, created + ' students, ' + enrolled_total + ' enrollments');
+        let msg = 'Created ' + created + ' students, enrolled in ' + enrolled_total + ' class seats.';
+        if (passwords.length) msg += ' Passwords (shown once):<br><code>' + passwords.slice(0, 20).join('</code><br><code>') + (created > 20 ? '</code><br><code>... and ' + (created - 20) + ' more' : '') + '</code>';
+        flash(req, msg, 'success');
+        return res.redirect('/admin.php?page=enrollments');
+    }
+
+    // ---- ENROLLMENTS: MANUAL ENROLL ----
+    if (action === 'enroll_manual') {
+        const class_id = php_int(req.body && req.body.class_id);
+        const student_id = php_int(req.body && req.body.student_id);
+        if (!class_id || !student_id) { flash(req, 'Class and student required.', 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const cls = await get('SELECT * FROM classes WHERE id=? AND status=\'active\'', [class_id]);
+        if (!cls) { flash(req, 'Class not found.', 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const stu = await get('SELECT u.id FROM users u JOIN students s ON u.id=s.user_id WHERE u.id=? AND u.status=\'active\'', [student_id]);
+        if (!stu) { flash(req, 'Student not found.', 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const existing = await get('SELECT COUNT(*) AS n FROM class_members WHERE class_id=? AND student_id=?', [class_id, student_id]);
+        if (Number(existing.n) > 0) {
+            flash(req, 'Student already enrolled in this class.', 'warning');
+        } else {
+            await run('INSERT INTO class_members (class_id, student_id) VALUES (?, ?)', [class_id, student_id]);
+            await audit(client, req, 'enroll_manual', 'class_members', null, null, 'class ' + class_id + ', student ' + student_id);
+            flash(req, 'Student enrolled.');
+        }
+        return res.redirect('/admin.php?page=enrollments');
+    }
+
+    // ---- ENROLLMENTS: ENROLL MISSING FOR SECTION ----
+    if (action === 'enroll_section_missing') {
+        const section = String((req.body && req.body.section) ?? '').trim();
+        if (!section) { flash(req, 'Section required.', 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const active_year_id = await get_active_year_id(client);
+        if (!active_year_id) { flash(req, 'No active academic year set.', 'danger'); return res.redirect('/admin.php?page=enrollments'); }
+
+        const missing = await get_unenrolled_students_in_section(client, section, active_year_id);
+        let enrolled = 0;
+        for (const s of missing) {
+            enrolled += await enroll_student_in_section(client, s.user_id, section, active_year_id);
+        }
+        await audit(client, req, 'enroll_section_missing', 'class_members', null, null, 'section ' + section + ', ' + enrolled + ' enrollments');
+        flash(req, 'Enrolled ' + enrolled + ' missing students for section ' + section + '.');
+        return res.redirect('/admin.php?page=enrollments');
+    }
+
+    // ---- CLASSES: CSV UPLOAD ----
+    if (action === 'classes_csv') {
+        const parsed = parse_enrollment_csv(req.files && req.files.csv_file);
+        if (parsed.error) { flash(req, parsed.error, 'danger'); return res.redirect('/admin.php?page=classes'); }
+
+        const active_year_id = await get_active_year_id(client);
+        if (!active_year_id) { flash(req, 'No active academic year set.', 'danger'); return res.redirect('/admin.php?page=classes'); }
+
+        let created = 0, enrolled_total = 0, errors = [];
+
+        for (let i = 0; i < parsed.rows.length; i++) {
+            const row = parsed.rows[i];
+            const subject = String(row.subject ?? '').trim();
+            const sections = (row.sections ?? '').split(',').map(s => s.trim()).filter(Boolean);
+            const teacher_email = String(row.teacher_email ?? '').trim();
+            const policy_name = String(row.policy_name ?? '').trim();
+
+            if (!subject || !sections.length || !teacher_email) {
+                errors.push('Line ' + (i + 1) + ': Missing required fields');
+                continue;
+            }
+
+            const teacher_id = await find_teacher_id_by_email(client, teacher_email);
+            if (!teacher_id) { errors.push('Line ' + (i + 1) + ': Teacher \'' + teacher_email + '\' not found'); continue; }
+
+            const policy_id = policy_name ? await find_policy_id(client, policy_name) : null;
+            if (policy_name && !policy_id) { errors.push('Line ' + (i + 1) + ': Policy \'' + policy_name + '\' not found'); continue; }
+
+            // Get first term for the year
+            const first_term_row = await get('SELECT id FROM terms WHERE academic_year_id=? ORDER BY number LIMIT 1', [active_year_id]);
+            const first_term = first_term_row ? Number(first_term_row.id) : 0;
+
+            for (const section of sections) {
+                if (!section) continue;
+                const join_code = require('crypto').randomBytes(4).toString('hex').toUpperCase().slice(0, 8);
+                const r = await run('INSERT INTO classes (teacher_id, subject, section, school_year, join_code, grading_policy_id, academic_year_id, current_term_id, status) VALUES (?,?,?,?,?,?,?,?,\'active\')',
+                    [teacher_id, subject, section, String(active_year_id), join_code, policy_id ?? null, active_year_id, (first_term !== 0 ? first_term : null)]);
+                const class_id = Number(r.lastId);
+                created++;
+
+                // Auto-create categories from policy
+                if (policy_id) {
+                    const comps = await all('SELECT * FROM grading_components WHERE policy_id=? ORDER BY sort_order', [policy_id]);
+                    for (const comp of comps) {
+                        await run('INSERT INTO grade_categories (class_id, name, weight, term_id) VALUES (?,?,?,?)',
+                            [class_id, comp.name, comp.weight, first_term]);
+                    }
+                }
+
+                // Auto-enroll all students in this section
+                enrolled_total += await enroll_student_in_section(client, null, section, active_year_id); // will enroll all students with this section
+            }
+        }
+
+        await audit(client, req, 'classes_csv', 'classes', null, null, created + ' classes, ' + enrolled_total + ' enrollments');
+        let msg = 'Created ' + created + ' classes, auto-enrolled ' + enrolled_total + ' students.';
+        if (errors.length) msg += ' Errors: ' + errors.join('; ');
+        flash(req, msg, errors.length ? 'warning' : 'success');
+        return res.redirect('/admin.php?page=classes');
+    }
+
+    // ---- CLASSES: BUILDER (grid) ----
+    if (action === 'classes_builder') {
+        const rows = req.body && req.body.builder_rows ? JSON.parse(req.body.builder_rows) : [];
+        if (!rows.length) { flash(req, 'No classes to create.', 'danger'); return res.redirect('/admin.php?page=classes'); }
+
+        const active_year_id = await get_active_year_id(client);
+        if (!active_year_id) { flash(req, 'No active academic year set.', 'danger'); return res.redirect('/admin.php?page=classes'); }
+
+        const first_term_row = await get('SELECT id FROM terms WHERE academic_year_id=? ORDER BY number LIMIT 1', [active_year_id]);
+        const first_term = first_term_row ? Number(first_term_row.id) : 0;
+
+        let created = 0, enrolled_total = 0, errors = [];
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const subject = String(row.subject ?? '').trim();
+            const sections = (row.sections ?? '').split(',').map(s => s.trim()).filter(Boolean);
+            const teacher_email = String(row.teacher_email ?? '').trim();
+            const policy_name = String(row.policy_name ?? '').trim();
+
+            if (!subject || !sections.length || !teacher_email) {
+                errors.push('Row ' + i + ': Missing required fields');
+                continue;
+            }
+
+            const teacher_id = await find_teacher_id_by_email(client, teacher_email);
+            if (!teacher_id) { errors.push('Row ' + i + ': Teacher \'' + teacher_email + '\' not found'); continue; }
+
+            const policy_id = policy_name ? await find_policy_id(client, policy_name) : null;
+            if (policy_name && !policy_id) { errors.push('Row ' + i + ': Policy \'' + policy_name + '\' not found'); continue; }
+
+            for (const section of sections) {
+                if (!section) continue;
+                const join_code = require('crypto').randomBytes(4).toString('hex').toUpperCase().slice(0, 8);
+                const r = await run('INSERT INTO classes (teacher_id, subject, section, school_year, join_code, grading_policy_id, academic_year_id, current_term_id, status) VALUES (?,?,?,?,?,?,?,?,\'active\')',
+                    [teacher_id, subject, section, String(active_year_id), join_code, policy_id ?? null, active_year_id, (first_term !== 0 ? first_term : null)]);
+                const class_id = Number(r.lastId);
+                created++;
+
+                if (policy_id) {
+                    const comps = await all('SELECT * FROM grading_components WHERE policy_id=? ORDER BY sort_order', [policy_id]);
+                    for (const comp of comps) {
+                        await run('INSERT INTO grade_categories (class_id, name, weight, term_id) VALUES (?,?,?,?)',
+                            [class_id, comp.name, comp.weight, first_term]);
+                    }
+                }
+
+                enrolled_total += await enroll_student_in_section(client, null, section, active_year_id);
+            }
+        }
+
+        await audit(client, req, 'classes_builder', 'classes', null, null, created + ' classes, ' + enrolled_total + ' enrollments');
+        let msg = 'Created ' + created + ' classes, auto-enrolled ' + enrolled_total + ' students.';
+        if (errors.length) msg += ' Errors: ' + errors.join('; ');
+        flash(req, msg, errors.length ? 'warning' : 'success');
+        return res.redirect('/admin.php?page=classes');
+    }
+
     return res.redirect('/admin.php');
 }
 
@@ -311,6 +519,7 @@ async function handle_admin_post(req, res) {
 
 // ---- admin_overview() ----
 async function admin_overview(req, res, ctx) {
+    console.log('DEPLOY_VERSION: 2026-11-27-v2');
     const teachers = Number((await get("SELECT COUNT(*) AS n FROM users WHERE role='teacher' AND status='active'")).n);
     const students = Number((await get("SELECT COUNT(*) AS n FROM users WHERE role='student' AND status='active'")).n);
     const classes = Number((await get("SELECT COUNT(*) AS n FROM classes WHERE status='active'")).n);
@@ -323,7 +532,7 @@ async function admin_overview(req, res, ctx) {
     const logs = await all(
         'SELECT al.*, u.email FROM audit_logs al LEFT JOIN users u ON u.id=al.user_id ORDER BY al.id DESC LIMIT 8');
 
-    res.render('admin/overview', page_ctx(ctx, 'overview', { teachers, students, classes, graded, events, unverified, evs, logs }));
+    res.render('admin/overview.ejs', page_ctx(ctx, 'overview', { teachers, students, classes, graded, events, unverified, evs, logs }));
 }
 
 // ---- admin_users() ----
@@ -337,7 +546,7 @@ async function admin_users(req, res, ctx) {
         + 'FROM users u LEFT JOIN teachers t ON t.user_id=u.id LEFT JOIN students s ON s.user_id=u.id '
         + where + ' ORDER BY u.id',
         role_filter !== 'all' ? [role_filter] : []);
-    res.render('admin/users', page_ctx(ctx, 'users', { role_filter, list }));
+    res.render('admin/users.ejs', page_ctx(ctx, 'users', { role_filter, list }));
 }
 
 // ---- admin_years() ----
@@ -346,7 +555,7 @@ async function admin_years(req, res, ctx) {
     for (const y of years) {
         y.terms = await all('SELECT * FROM terms WHERE academic_year_id=? ORDER BY number', [y.id]);
     }
-    res.render('admin/years', page_ctx(ctx, 'years', { years }));
+    res.render('admin/years.ejs', page_ctx(ctx, 'years', { years }));
 }
 
 // ---- admin_policies() ----
@@ -371,7 +580,7 @@ async function admin_policies(req, res, ctx) {
         prevMax = Number(b.max_grade);
     }
 
-    res.render('admin/policies', page_ctx(ctx, 'policies', {
+    res.render('admin/policies.ejs', page_ctx(ctx, 'policies', {
         rows, chk, overlaps,
         tg_min: Math.trunc(TERM_GRADE_MIN),
         tg_max: Math.trunc(TERM_GRADE_MAX),
@@ -405,13 +614,13 @@ async function admin_calendar(req, res, ctx) {
 
     const evs = await all('SELECT * FROM calendar_events WHERE event_date BETWEEN ? AND ? ORDER BY event_date', [start, end]);
 
-    res.render('admin/calendar', page_ctx(ctx, 'calendar', { terms, month, evs }));
+    res.render('admin/calendar.ejs', page_ctx(ctx, 'calendar', { terms, month, evs }));
 }
 
 // ---- admin_announcements() ----
 async function admin_announcements(req, res, ctx) {
     const list = await all('SELECT sa.*, u.email FROM school_announcements sa LEFT JOIN users u ON u.id=sa.posted_by ORDER BY sa.id DESC');
-    res.render('admin/announcements', page_ctx(ctx, 'announcements', { list }));
+    res.render('admin/announcements.ejs', page_ctx(ctx, 'announcements', { list }));
 }
 
 // ---- admin_audit() ----
@@ -423,13 +632,13 @@ async function admin_audit(req, res, ctx) {
     const rows = await all(
         'SELECT al.*, u.email FROM audit_logs al LEFT JOIN users u ON u.id=al.user_id ORDER BY al.id DESC LIMIT ?',
         [limit]);
-    res.render('admin/audit', page_ctx(ctx, 'audit', { rows }));
+    res.render('admin/audit.ejs', page_ctx(ctx, 'audit', { rows }));
 }
 
 // ---- admin_settings() ----
 async function admin_settings(req, res, ctx) {
     const registration_mode = await setting(client, 'registration_mode', 'open');
-    res.render('admin/settings', page_ctx(ctx, 'settings', { school_name: ctx.school_name, registration_mode }));
+    res.render('admin/settings.ejs', page_ctx(ctx, 'settings', { school_name: ctx.school_name, registration_mode }));
 }
 
 // ================================================================
@@ -443,6 +652,8 @@ router.get('/admin.php', require_admin, async (req, res, next) => {
 
         switch (page) {
             case 'users': return await admin_users(req, res, ctx);
+            case 'enrollments': return await admin_enrollments(req, res, ctx);
+            case 'classes': return await admin_classes(req, res, ctx);
             case 'years': return await admin_years(req, res, ctx);
             case 'policies': return await admin_policies(req, res, ctx);
             case 'calendar': return await admin_calendar(req, res, ctx);
@@ -459,5 +670,66 @@ router.post('/admin.php', require_admin, upload.any(), async (req, res, next) =>
         await handle_admin_post(req, res);
     } catch (e) { next(e); }
 });
+
+// ================================================================
+// ENROLLMENTS PAGE
+// ================================================================
+async function admin_enrollments(req, res, ctx) {
+    const active_year_id = await get_active_year_id(client);
+    const active_year = active_year_id ? (await get('SELECT label FROM academic_years WHERE id=?', [active_year_id]))?.label : null;
+
+    // Section overview: all sections with students in active year
+    const sections = active_year_id ? await all(`
+        SELECT s.section,
+               COUNT(DISTINCT s.user_id) AS student_count,
+               (SELECT COUNT(*) FROM classes c WHERE c.section=s.section AND c.academic_year_id=? AND c.status='active') AS class_count
+        FROM students s
+        JOIN users u ON u.id=s.user_id
+        WHERE u.status='active' AND s.section IS NOT NULL AND s.section != ''
+        GROUP BY s.section
+        ORDER BY s.section
+    `, [active_year_id]) : [];
+
+    // Classes for manual enroll dropdown
+    const classes = active_year_id ? await all('SELECT c.id, c.subject, c.section FROM classes c WHERE c.academic_year_id=? AND c.status=\'active\' ORDER BY c.section, c.subject', [active_year_id]) : [];
+
+    // Students not in a specific class (for manual enroll)
+    const all_students = await all('SELECT u.id, s.full_name, s.student_number, s.section FROM users u JOIN students s ON u.id=s.user_id WHERE u.role=\'student\' AND u.status=\'active\' ORDER BY s.full_name');
+
+    // Recent enrollment audit
+    const recent = await all('SELECT al.*, u.email FROM audit_logs al LEFT JOIN users u ON u.id=al.user_id WHERE al.action IN (\'enroll_manual\',\'enroll_csv\',\'enroll_section_missing\',\'bulk_create_students\') ORDER BY al.id DESC LIMIT 10');
+
+    res.render('admin/enrollments.ejs', page_ctx(ctx, 'enrollments', { active_year_id, active_year, sections, classes, all_students, recent }));
+}
+
+// ================================================================
+// CLASSES PAGE (Bulk Create + Manage)
+// ================================================================
+async function admin_classes(req, res, ctx) {
+    const active_year_id = await get_active_year_id(client);
+    const active_year = active_year_id ? (await get('SELECT label FROM academic_years WHERE id=?', [active_year_id]))?.label : null;
+
+    // Teachers for dropdown
+    const teachers = await all('SELECT t.user_id, t.full_name, t.department, u.email FROM teachers t JOIN users u ON u.id=t.user_id WHERE u.status=\'active\' ORDER BY t.full_name');
+
+    // Policies for dropdown
+    const policies = await all('SELECT id, name FROM grading_policies WHERE is_active=1 ORDER BY name');
+
+    // Existing classes for active year
+    const existing = active_year_id ? await all(
+        `SELECT c.*, t.full_name AS teacher_name, gp.name AS policy_name,
+                (SELECT COUNT(*) FROM class_members WHERE class_id=c.id) AS student_count
+         FROM classes c
+         LEFT JOIN teachers t ON t.user_id=c.teacher_id
+         LEFT JOIN grading_policies gp ON gp.id=c.grading_policy_id
+         WHERE c.academic_year_id=? AND c.status='active'
+         ORDER BY c.section, c.subject`,
+        [active_year_id]) : [];
+
+    // Sections with student counts
+    const sections = active_year_id ? await all('SELECT section, COUNT(DISTINCT s.user_id) AS student_count FROM students s JOIN users u ON u.id=s.user_id WHERE u.status=\'active\' AND s.section IS NOT NULL AND s.section != \'\' GROUP BY section ORDER BY section', []) : [];
+
+    res.render('admin/classes.ejs', page_ctx(ctx, 'classes', { active_year_id, active_year, teachers, policies, existing, sections }));
+}
 
 module.exports = router;

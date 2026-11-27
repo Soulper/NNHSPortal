@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar', { admin_page: admin_page, chip_name: chip_name, chip_ini: chip_ini, school_name: school_name }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (!active_year_id) { %>
+        <div class="alert alert-warning">No active academic year set. Go to <a href="admin.php?page=years">Years & Terms</a> to set one.</div>
+    <% } else { %>
+        <div class="page-header">
+            <div>
+                <h4 class="page-title">Enrollments</h4>
+                <p class="page-subtitle">Manage student enrollment by section</p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="admin.php?download=student_template" class="btn btn-sm btn-outline-secondary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Download Template
+                </a>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <!-- LEFT: Section Overview + CSV Upload -->
+            <div class="col-lg-7">
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Upload Students (CSV) — Active Year: <%= active_year %></span>
+                        <span class="badge bg-primary"><%= sections.length %> Sections</span>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" enctype="multipart/form-data" class="mb-3">
+                            <input type="hidden" name="action" value="enroll_csv">
+                            <input type="hidden" name="csrf_token" value="<%= csrf %>">
+                            <div class="row g-2 align-items-end">
+                                <div class="col"><label class="small fw-semibold">CSV File</label><input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" required></div>
+                                <div class="col-auto"><button type="submit" class="btn btn-sm btn-brand">Upload & Enroll</button></div>
+                            </div>
+                            <div class="form-text">Columns: <code>student_number,full_name,email,section,password</code> — creates accounts + auto-enrolls in ALL classes of that section for the active year.</div>
+                        </form>
+
+                        <hr>
+                        <h6 class="fw-semibold">Section Overview (Active Year: <%= active_year %>)</h6>
+                        <% if (!sections.length) { %>
+                            <div class="text-muted small p-3">No students with sections found.</div>
+                        <% } else { %>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead><tr><th>Section</th><th>Students</th><th>Classes</th><th class="text-end">Action</th></tr></thead>
+                                    <tbody>
+                                    <% for (const sec of sections) { %>
+                                        <tr>
+                                            <td><strong><%= sec.section %></strong></td>
+                                            <td><%= sec.student_count %></td>
+                                            <td><%= sec.class_count %></td>
+                                            <td class="text-end">
+                                                <form method="POST" class="d-inline" onsubmit="return confirm('Enroll all missing students in section <%= sec.section %>?')">
+                                                    <input type="hidden" name="action" value="enroll_section_missing">
+                                                    <input type="hidden" name="csrf_token" value="<%= csrf %>">
+                                                    <input type="hidden" name="section" value="<%= sec.section %>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-primary">Enroll Missing</button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <% } %>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Manual Enroll -->
+            <div class="col-lg-5">
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header fw-semibold">Manual Enroll</div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="enroll_manual">
+                            <input type="hidden" name="csrf_token" value="<%= csrf %>">
+                            <div class="mb-2"><label class="small fw-semibold">Class</label>
+                                <select name="class_id" class="form-select form-select-sm" required>
+                                    <option value="">Select class...</option>
+                                    <% for (const c of classes) { %>
+                                        <option value="<%= c.id %>"><%= c.subject %> — <%= c.section %></option>
+                                    <% } %>
+                                </select>
+                            </div>
+                            <div class="mb-2"><label class="small fw-semibold">Student</label>
+                                <select name="student_id" class="form-select form-select-sm" required>
+                                    <option value="">Select student...</option>
+                                    <% for (const s of all_students) { %>
+                                        <option value="<%= s.id %>"><%= s.full_name %> (<%= s.student_number %>) — <%= s.section %></option>
+                                    <% } %>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-sm btn-brand w-100">Enroll Student</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Recent Enrollments (Audit) -->
+                <div class="card shadow-sm">
+                    <div class="card-header fw-semibold">Recent Enrollments</div>
+                    <div class="card-body p-0">
+                        <% if (!recent.length) { %>
+                            <p class="text-muted small p-3 mb-0">No recent enrollments.</p>
+                        <% } else { %>
+                            <ul class="list-group list-group-flush">
+                            <% for (const r of recent) { %>
+                                <li class="list-group-item d-flex justify-content-between"><span><small><%= r.action %></small> <span class="text-muted"><%= r.email ?? 'system' %></span></span><small class="text-muted"><%= r.created_at %></small></li>
+                            <% } %>
+                            </ul>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <% } %>
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>

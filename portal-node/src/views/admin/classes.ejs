@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <%- include('../partials/app_head', { title: title }) %>
+</head>
+<body>
+<%- include('../partials/admin_navbar', { admin_page: admin_page, chip_name: chip_name, chip_ini: chip_ini, school_name: school_name }) %>
+
+<div class="container mt-4">
+    <% if (flash) { %>
+        <div class="alert alert-<%= flash_type %> alert-dismissible fade show" role="alert"><%= flash %><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <% } %>
+
+    <% if (!active_year_id) { %>
+        <div class="alert alert-warning">No active academic year set. Go to <a href="admin.php?page=years">Years & Terms</a> to set one.</div>
+    <% } else { %>
+        <div class="page-header">
+            <div>
+                <h4 class="page-title">Classes</h4>
+                <p class="page-subtitle">Bulk create classes and assign teachers</p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="admin.php?download=class_template" class="btn btn-sm btn-outline-secondary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Download Template
+                </a>
+            </div>
+        </div>
+
+        <!-- CLASS BUILDER GRID -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header fw-semibold">Class Builder — Active Year: <%= active_year %></div>
+            <div class="card-body">
+                <form method="POST" id="classBuilderForm">
+                    <input type="hidden" name="action" value="classes_builder">
+                    <input type="hidden" name="csrf_token" value="<%= csrf %>">
+                    <input type="hidden" name="builder_rows" id="builderRowsInput">
+
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm table-bordered" id="builderTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th>Subject</th>
+                                    <th>Sections (comma-separated)</th>
+                                    <th>Teacher</th>
+                                    <th>Grading Policy</th>
+                                    <th style="width:50px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="builder-row">
+                                    <td class="text-center fw-bold">1</td>
+                                    <td><input type="text" name="subject[]" class="form-control form-control-sm" placeholder="e.g. General Mathematics" required></td>
+                                    <td><input type="text" name="sections[]" class="form-control form-control-sm" placeholder="G11-A,G11-B" required></td>
+                                    <td>
+                                        <select name="teacher_email[]" class="form-select form-select-sm" required>
+                                            <option value="">Select teacher...</option>
+                                            <% for (const t of teachers) { %>
+                                                <option value="<%= t.email %>"><%= t.full_name %> (<%= t.department ?? '' %>)</option>
+                                            <% } %>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select name="policy_name[]" class="form-select form-select-sm">
+                                            <option value="">(Auto from policy)</option>
+                                            <% for (const p of policies) { %>
+                                                <option value="<%= p.name %>"><%= p.name %></option>
+                                            <% } %>
+                                        </select>
+                                    </td>
+                                    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove-row" title="Remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" id="addBuilderRow" class="btn btn-sm btn-outline-primary">+ Add Row</button>
+                        <button type="submit" class="btn btn-sm btn-brand ms-auto">Create Classes</button>
+                    </div>
+                    <div class="form-text mt-2">Creates one class per section. Auto-creates grade categories from policy. Auto-enrolls all students in that section.</div>
+                </form>
+            </div>
+        </div>
+
+        <!-- CSV UPLOAD -->
+        <div class="card shadow-sm mb-3">
+            <div class="card-header fw-semibold">Bulk Upload (CSV)</div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="classes_csv">
+                    <input type="hidden" name="csrf_token" value="<%= csrf %>">
+                    <div class="row g-2 align-items-end">
+                        <div class="col"><label class="small fw-semibold">CSV File</label><input type="file" name="csv_file" accept=".csv" class="form-control form-control-sm" required></div>
+                        <div class="col-auto"><button type="submit" class="btn btn-sm btn-brand">Upload & Create</button></div>
+                    </div>
+                    <div class="form-text">Columns: <code>subject,sections,teacher_email,policy_name</code> — sections comma-separated (e.g. "G11-A,G11-B"). Policy name must match exactly.</div>
+                </form>
+            </div>
+        </div>
+
+        <!-- EXISTING CLASSES -->
+        <div class="card shadow-sm">
+            <div class="card-header fw-semibold">Existing Classes (Active Year: <%= active_year %>)</div>
+            <div class="card-body p-0">
+                <% if (!existing.length) { %>
+                    <p class="text-muted small p-3 mb-0">No classes yet.</p>
+                <% } else { %>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead><tr><th>Subject</th><th>Section</th><th>Teacher</th><th>Policy</th><th>Join Code</th><th>Students</th><th></th></tr></thead>
+                            <tbody>
+                            <% for (const c of existing) { %>
+                                <tr>
+                                    <td><%= c.subject %></td>
+                                    <td><%= c.section %></td>
+                                    <td><%= c.teacher_name ?? '—' %></td>
+                                    <td><%= c.policy_name ?? 'Standard' %></td>
+                                    <td><code><%= c.join_code ?? '-' %></code></td>
+                                    <td><%= c.student_count ?? 0 %></td>
+                                    <td class="text-nowrap">
+                                        <a href="dashboard.php?page=settings&id=<%= c.id %>" class="btn btn-sm btn-outline-secondary" target="_blank">Settings</a>
+                                        <a href="dashboard.php?page=grades&id=<%= c.id %>" class="btn btn-sm btn-outline-primary" target="_blank">Grades</a>
+                                    </td>
+                                </tr>
+                            <% } %>
+                            </tbody>
+                        </table>
+                    </div>
+                <% } %>
+            </div>
+        </div>
+    <% } %>
+</div>
+
+<%- include('../partials/admin_footer') %>
+</body>
+</html>
